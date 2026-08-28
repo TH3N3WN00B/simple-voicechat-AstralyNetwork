@@ -69,6 +69,7 @@ public class Server extends Thread {
      * lets {@code ProcessThread} immediately proceed to the next incoming packet.
      */
     private final ExecutorService sendExecutor;
+    private final Set<UUID> serverMutedPlayers;
 
     public Server(MinecraftServer server) {
         dedicated = server instanceof DedicatedServer;
@@ -111,6 +112,7 @@ public class Server extends Thread {
                     return t;
                 },
                 (r, executor) -> CooldownTimer.run("send_queue_full", () -> Voicechat.LOGGER.warn("Voice chat send queue is full, dropping packets")));
+        serverMutedPlayers = ConcurrentHashMap.newKeySet();
         setDaemon(true);
         setName("VoiceChatServerThread");
         setUncaughtExceptionHandler(new VoicechatUncaughtExceptionHandler());
@@ -120,6 +122,9 @@ public class Server extends Thread {
 
     public void onPlayerLoggedIn(ServerPlayer player) {
         playerStateManager.onPlayerLoggedIn(player);
+        if (isServerMuted(player.getUUID())) {
+            playerStateManager.setMuted(player, true);
+        }
     }
 
     public void onPlayerLoggedOut(ServerPlayer player) {
@@ -445,6 +450,9 @@ public class Server extends Thread {
     }
 
     private void processMicPacket(ServerPlayer player, PlayerState state, MicPacket packet) {
+        if (isServerMuted(player.getUUID())) {
+            return;
+        }
         if (packet.isAnnounce() || isAnnounceModeActive(player.getUUID())) {
             processAnnouncementPacket(state, player, packet);
             return;
@@ -484,8 +492,11 @@ public class Server extends Thread {
 
     private void processProximityPacket(PlayerState senderState, ServerPlayer sender, MicPacket packet) {
         @Nullable UUID groupId = senderState.getGroup();
+        boolean megaphone = packet.isMegaphone() && !packet.isWhispering();
         float distance;
-        if (packet.isWhispering()) {
+        if (megaphone) {
+            distance = Voicechat.SERVER_CONFIG.megaphoneDistance.get().floatValue();
+        } else if (packet.isWhispering()) {
             distance = Voicechat.SERVER_CONFIG.whisperDistance.get().floatValue();
         } else {
             distance = Utils.getDefaultDistanceServer();
@@ -518,7 +529,7 @@ public class Server extends Thread {
         }
 
         if (soundPacket == null) {
-            soundPacket = new PlayerSoundPacket(sender.getUUID(), sender.getUUID(), packet.getData(), packet.getSequenceNumber(), packet.isWhispering(), distance, null);
+            soundPacket = new PlayerSoundPacket(sender.getUUID(), sender.getUUID(), packet.getData(), packet.getSequenceNumber(), !megaphone && packet.isWhispering(), distance, null);
             source = SoundPacketEvent.SOURCE_PROXIMITY;
         }
 
@@ -697,6 +708,17 @@ public class Server extends Thread {
         }
         announceModePlayers.remove(uuid);
         return false;
+    public boolean isServerMuted(UUID playerUUID) {
+        return serverMutedPlayers.contains(playerUUID);
+    }
+
+    public void setServerMuted(ServerPlayer player, boolean muted) {
+        if (muted) {
+            serverMutedPlayers.add(player.getUUID());
+        } else {
+            serverMutedPlayers.remove(player.getUUID());
+        }
+        playerStateManager.setMuted(player, muted);
     }
 
     @Nullable

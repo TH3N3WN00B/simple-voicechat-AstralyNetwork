@@ -15,6 +15,7 @@ public abstract class PermissionManager {
     public final Permission GROUPS_PERMISSION;
     public final Permission ANNOUNCE_PERMISSION;
     public final Permission ADMIN_PERMISSION;
+    public final Permission ANNOUNCE_PERMISSION;
 
     protected List<Permission> permissions = new ArrayList<>();
 
@@ -24,6 +25,7 @@ public abstract class PermissionManager {
         GROUPS_PERMISSION = createPermission(Voicechat.MODID, "groups", PermissionType.EVERYONE);
         ANNOUNCE_PERMISSION = createPermission(Voicechat.MODID, "announce", PermissionType.EVERYONE);
         ADMIN_PERMISSION = createPermission(Voicechat.MODID, "admin", PermissionType.OPS);
+        ANNOUNCE_PERMISSION = createPermission(Voicechat.MODID, "announce", PermissionType.OPS);
     }
 
     public abstract Permission createPermissionInternal(String modId, String node, PermissionType type);
