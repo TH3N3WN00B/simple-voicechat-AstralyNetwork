@@ -32,8 +32,8 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 public class Server extends Thread {
@@ -43,10 +43,11 @@ public class Server extends Thread {
     private final Map<SocketAddress, ClientConnection> connectionIndex;
     private final Map<UUID, Secret> secrets;
     private static final int PACKET_QUEUE_CAPACITY = 10_000;
+    private static final int SEND_QUEUE_CAPACITY = 20_000;
     private final boolean dedicated;
-    private int port;
+    private volatile int port;
     private final MinecraftServer server;
-    private VoicechatSocket socket;
+    private volatile VoicechatSocket socket;
     private final ProcessThread processThread;
     private final BlockingQueue<RawUdpPacket> packetQueue;
     private final PacketRateLimiter udpRateLimiter;
@@ -98,13 +99,18 @@ public class Server extends Thread {
         groupManager = new ServerGroupManager(this);
         categoryManager = new ServerCategoryManager(this);
         announceModePlayers = ConcurrentHashMap.newKeySet();
-        sendExecutor = Executors.newFixedThreadPool(4,
+        // The send queue is bounded: voice is real-time, so when the sender threads can't
+        // keep up (e.g. blocked network), stale packets are dropped instead of piling up
+        // in memory until the server runs out of heap.
+        sendExecutor = new ThreadPoolExecutor(4, 4, 0L, TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(SEND_QUEUE_CAPACITY),
                 r -> {
                     Thread t = new Thread(r, "VoiceChatSendThread");
                     t.setDaemon(true);
                     t.setUncaughtExceptionHandler(new VoicechatUncaughtExceptionHandler());
                     return t;
-                });
+                },
+                (r, executor) -> CooldownTimer.run("send_queue_full", () -> Voicechat.LOGGER.warn("Voice chat send queue is full, dropping packets")));
         setDaemon(true);
         setName("VoiceChatServerThread");
         setUncaughtExceptionHandler(new VoicechatUncaughtExceptionHandler());
@@ -235,13 +241,16 @@ public class Server extends Thread {
     }
 
     public Secret getSecret(UUID playerUUID) {
-        if (hasSecret(playerUUID)) {
-            return secrets.get(playerUUID);
-        } else {
-            Secret secret = Secret.generateNewRandomSecret();
-            secrets.put(playerUUID, secret);
-            return secret;
-        }
+        return secrets.computeIfAbsent(playerUUID, uuid -> Secret.generateNewRandomSecret());
+    }
+
+    /**
+     * @param playerUUID the player uuid
+     * @return the secret of the player or null if the player has no secret
+     */
+    @Nullable
+    public Secret getSecretOrNull(UUID playerUUID) {
+        return secrets.get(playerUUID);
     }
 
     /**
@@ -250,10 +259,8 @@ public class Server extends Thread {
      */
     @Nullable
     public Secret generateNewSecret(UUID playerUUID) {
-        if (hasSecret(playerUUID)) {
-            return null;
-        }
-        return getSecret(playerUUID);
+        Secret secret = Secret.generateNewRandomSecret();
+        return secrets.putIfAbsent(playerUUID, secret) == null ? secret : null;
     }
 
     public boolean hasSecret(UUID playerUUID) {
@@ -299,7 +306,7 @@ public class Server extends Thread {
     }
 
     private class ProcessThread extends Thread {
-        private boolean running;
+        private volatile boolean running;
         private long lastKeepAlive;
 
         public ProcessThread() {
@@ -650,8 +657,9 @@ public class Server extends Thread {
             return false;
         });
 
+        KeepAlivePacket keepAlivePacket = new KeepAlivePacket();
         for (ClientConnection connection : connections.values()) {
-            sendPacket(new KeepAlivePacket(), connection);
+            sendPacket(keepAlivePacket, connection);
         }
 
     }
@@ -752,7 +760,9 @@ public class Server extends Thread {
     }
 
     public void addRawPacket(RawUdpPacket rawUdpPacket) {
-        packetQueue.add(rawUdpPacket);
+        if (!packetQueue.offer(rawUdpPacket)) {
+            CooldownTimer.run("packet_queue_full", () -> Voicechat.LOGGER.warn("Voice chat packet queue is full, dropping packets"));
+        }
     }
 
     public PingManager getPingManager() {

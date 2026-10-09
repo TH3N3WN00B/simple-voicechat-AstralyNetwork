@@ -22,6 +22,7 @@ import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
 import java.net.InetAddress;
+import java.net.SocketAddress;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.nio.channels.AsynchronousCloseException;
@@ -32,7 +33,7 @@ import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -40,6 +41,7 @@ import java.util.concurrent.TimeUnit;
 public class Server extends Thread {
 
     private static final int PACKET_QUEUE_CAPACITY = 10_000;
+    private static final int SEND_QUEUE_CAPACITY = 20_000;
 
     private final Map<UUID, ClientConnection> connections;
     private final Map<UUID, ClientConnection> unCheckedConnections;
@@ -47,6 +49,7 @@ public class Server extends Thread {
     private final int port;
     private final org.bukkit.Server server;
     private final VoicechatSocket socket;
+    private final Map<SocketAddress, ClientConnection> connectionIndex = new ConcurrentHashMap<>();
     private final ProcessThread processThread;
     private final BlockingQueue<RawUdpPacket> packetQueue;
     private final PacketRateLimiter udpRateLimiter;
@@ -87,13 +90,18 @@ public class Server extends Thread {
         playerStateManager = new PlayerStateManager();
         groupManager = new ServerGroupManager();
         categoryManager = new ServerCategoryManager();
-        sendExecutor = Executors.newFixedThreadPool(4,
+        // The send queue is bounded: voice is real-time, so when the sender threads can't
+        // keep up (e.g. blocked network), stale packets are dropped instead of piling up
+        // in memory until the server runs out of heap.
+        sendExecutor = new ThreadPoolExecutor(4, 4, 0L, TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(SEND_QUEUE_CAPACITY),
                 r -> {
                     Thread t = new Thread(r, "VoiceChatSendThread");
                     t.setDaemon(true);
                     t.setUncaughtExceptionHandler(new VoicechatUncaughtExceptionHandler());
                     return t;
-                });
+                },
+                (r, executor) -> CooldownTimer.run("send_queue_full", () -> Voicechat.LOGGER.warn("Voice chat send queue is full, dropping packets")));
         setDaemon(true);
         setName("VoiceChatServerThread");
         setUncaughtExceptionHandler(new VoicechatUncaughtExceptionHandler());
@@ -170,13 +178,16 @@ public class Server extends Thread {
     }
 
     public Secret getSecret(UUID playerUUID) {
-        if (hasSecret(playerUUID)) {
-            return secrets.get(playerUUID);
-        } else {
-            Secret secret = Secret.generateNewRandomSecret();
-            secrets.put(playerUUID, secret);
-            return secret;
-        }
+        return secrets.computeIfAbsent(playerUUID, uuid -> Secret.generateNewRandomSecret());
+    }
+
+    /**
+     * @param playerUUID the player uuid
+     * @return the secret of the player or null if the player has no secret
+     */
+    @Nullable
+    public Secret getSecretOrNull(UUID playerUUID) {
+        return secrets.get(playerUUID);
     }
 
     /**
@@ -185,10 +196,8 @@ public class Server extends Thread {
      */
     @Nullable
     public Secret generateNewSecret(UUID playerUUID) {
-        if (hasSecret(playerUUID)) {
-            return null;
-        }
-        return getSecret(playerUUID);
+        Secret secret = Secret.generateNewRandomSecret();
+        return secrets.putIfAbsent(playerUUID, secret) == null ? secret : null;
     }
 
     public boolean hasSecret(UUID playerUUID) {
@@ -196,8 +205,14 @@ public class Server extends Thread {
     }
 
     public void disconnectClient(UUID playerUUID) {
-        connections.remove(playerUUID);
-        unCheckedConnections.remove(playerUUID);
+        ClientConnection removed = connections.remove(playerUUID);
+        if (removed != null) {
+            connectionIndex.remove(removed.getAddress());
+        }
+        ClientConnection removedUnchecked = unCheckedConnections.remove(playerUUID);
+        if (removedUnchecked != null) {
+            connectionIndex.remove(removedUnchecked.getAddress());
+        }
         secrets.remove(playerUUID);
         udpRateLimiter.onPlayerLoggedOut(playerUUID);
         PluginManager.instance().onPlayerDisconnected(playerUUID);
@@ -224,7 +239,7 @@ public class Server extends Thread {
     }
 
     private class ProcessThread extends Thread {
-        private boolean running;
+        private volatile boolean running;
         private long lastKeepAlive;
 
         public ProcessThread() {
@@ -284,6 +299,7 @@ public class Server extends Thread {
                             if (connection == null) {
                                 connection = new ClientConnection(packet.getPlayerUUID(), message.getAddress());
                                 unCheckedConnections.put(packet.getPlayerUUID(), connection);
+                                connectionIndex.put(message.getAddress(), connection);
                                 Voicechat.LOGGER.info("Successfully authenticated player {}", packet.getPlayerUUID());
                             }
                             sendPacket(new AuthenticateAckPacket(), connection);
@@ -302,6 +318,7 @@ public class Server extends Thread {
                         // Refresh keepalive, so players who took longer than the timeout can still connect
                         connection.setLastKeepAliveResponse(System.currentTimeMillis());
                         connections.put(connection.getPlayerUUID(), connection);
+                        connectionIndex.put(connection.getAddress(), connection);
                         unCheckedConnections.remove(connection.getPlayerUUID());
                         Voicechat.LOGGER.info("Successfully validated connection of player {}", connection.getPlayerUUID());
                         Player player = server.getPlayer(connection.getPlayerUUID());
@@ -539,6 +556,7 @@ public class Server extends Thread {
         connections.values().removeIf(connection -> {
             if (timestamp - connection.getLastKeepAliveResponse() >= Voicechat.SERVER_CONFIG.keepAlive.get() * 10L) {
                 // Don't call disconnectClient here!
+                connectionIndex.remove(connection.getAddress());
                 secrets.remove(connection.getPlayerUUID());
                 Voicechat.LOGGER.info("Player {} timed out", connection.getPlayerUUID());
                 Player player = server.getPlayer(connection.getPlayerUUID());
@@ -555,30 +573,29 @@ public class Server extends Thread {
             return false;
         });
 
+        KeepAlivePacket keepAlivePacket = new KeepAlivePacket();
         for (ClientConnection connection : connections.values()) {
-            sendPacket(new KeepAlivePacket(), connection);
+            sendPacket(keepAlivePacket, connection);
         }
 
     }
 
     @Nullable
     public ClientConnection getSender(NetworkMessage message) {
-        return connections
-                .values()
-                .stream()
-                .filter(connection -> connection.getAddress().equals(message.getAddress()))
-                .findAny()
-                .orElse(null);
+        ClientConnection connection = connectionIndex.get(message.getAddress());
+        if (connection != null && connections.get(connection.getPlayerUUID()) == connection) {
+            return connection;
+        }
+        return null;
     }
 
     @Nullable
     public ClientConnection getUnconnectedSender(NetworkMessage message) {
-        return unCheckedConnections
-                .values()
-                .stream()
-                .filter(connection -> connection.getAddress().equals(message.getAddress()))
-                .findAny()
-                .orElse(null);
+        ClientConnection connection = connectionIndex.get(message.getAddress());
+        if (connection != null && unCheckedConnections.get(connection.getPlayerUUID()) == connection) {
+            return connection;
+        }
+        return null;
     }
 
     public Map<UUID, ClientConnection> getConnections() {
