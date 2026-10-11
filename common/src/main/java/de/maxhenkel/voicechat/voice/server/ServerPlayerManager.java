@@ -95,7 +95,10 @@ public class ServerPlayerManager {
         if (current != null && now - lastIndexRefresh < INDEX_REFRESH_INTERVAL_MS) {
             return current;
         }
-        if (!indexLock.tryLock()) {
+        if (current == null) {
+            // No index yet - we must wait for the one being built (returning null would NPE)
+            indexLock.lock();
+        } else if (!indexLock.tryLock()) {
             return current;
         }
         try {
@@ -103,9 +106,9 @@ public class ServerPlayerManager {
             if (now - lastIndexRefresh < INDEX_REFRESH_INTERVAL_MS) {
                 return index;
             }
-            lastIndexRefresh = now;
             PlayerSpatialIndex newIndex = buildIndex(level);
             index = newIndex;
+            lastIndexRefresh = now;
             return newIndex;
         } finally {
             indexLock.unlock();

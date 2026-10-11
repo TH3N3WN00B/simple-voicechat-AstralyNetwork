@@ -6,6 +6,7 @@ import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
+import javax.crypto.ShortBufferException;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.security.InvalidAlgorithmParameterException;
@@ -145,12 +146,53 @@ public class Secret {
         return payload;
     }
 
+    /**
+     * Encrypts {@code data} and returns the complete wire frame in a single allocation:
+     * {@code [magic byte][varint length][IV][ciphertext + tag]}.
+     * Equivalent to writing the magic byte and a length prefixed byte array with the
+     * result of {@link #encrypt(byte[])}, but without any intermediate copies.
+     */
+    public byte[] encryptFramed(byte magic, byte[] data) throws InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException, ShortBufferException {
+        byte[] iv = generateIV();
+        Cipher cipher = ENCRYPT_CIPHER.get();
+        cipher.init(Cipher.ENCRYPT_MODE, getKeySpec(), new GCMParameterSpec(TAG_LEN_BITS, iv));
+        int payloadLength = IV_SIZE_BYTES + data.length + TAG_LEN_BITS / 8;
+        byte[] out = new byte[1 + varIntSize(payloadLength) + payloadLength];
+        int pos = 0;
+        out[pos++] = magic;
+        int value = payloadLength;
+        while ((value & ~0x7F) != 0) {
+            out[pos++] = (byte) ((value & 0x7F) | 0x80);
+            value >>>= 7;
+        }
+        out[pos++] = (byte) value;
+        System.arraycopy(iv, 0, out, pos, IV_SIZE_BYTES);
+        pos += IV_SIZE_BYTES;
+        cipher.doFinal(data, 0, data.length, out, pos);
+        return out;
+    }
+
+    private static int varIntSize(int value) {
+        int size = 1;
+        while ((value & ~0x7F) != 0) {
+            size++;
+            value >>>= 7;
+        }
+        return size;
+    }
+
     public byte[] decrypt(byte[] payload) throws InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
-        // Use offset/length overload to avoid allocating a separate IV copy
+        return decrypt(payload, 0, payload.length);
+    }
+
+    public byte[] decrypt(byte[] buffer, int offset, int length) throws InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+        if (length < IV_SIZE_BYTES + TAG_LEN_BITS / 8) {
+            throw new IllegalBlockSizeException("Payload too short");
+        }
+        // Offset/length overloads avoid allocating separate IV and ciphertext copies
         Cipher cipher = DECRYPT_CIPHER.get();
-        cipher.init(Cipher.DECRYPT_MODE, getKeySpec(),
-                new GCMParameterSpec(TAG_LEN_BITS, payload, 0, IV_SIZE_BYTES));
-        return cipher.doFinal(payload, IV_SIZE_BYTES, payload.length - IV_SIZE_BYTES);
+        cipher.init(Cipher.DECRYPT_MODE, getKeySpec(), new GCMParameterSpec(TAG_LEN_BITS, buffer, offset, IV_SIZE_BYTES));
+        return cipher.doFinal(buffer, offset + IV_SIZE_BYTES, length - IV_SIZE_BYTES);
     }
 
     @Override

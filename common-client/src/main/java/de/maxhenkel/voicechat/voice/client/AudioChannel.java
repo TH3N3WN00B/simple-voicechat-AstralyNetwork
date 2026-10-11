@@ -48,13 +48,18 @@ public class AudioChannel extends Thread {
      * playing distorted long-form PLC output.
      */
     private static final int MAX_PLC_FRAMES = 10;
+    /**
+     * Upper bound of queued packets (~4 s of audio at 50 packets/s). Prevents unbounded
+     * memory growth if the channel thread stalls or a server floods the client.
+     */
+    private static final int MAX_QUEUED_PACKETS = 200;
 
     public AudioChannel(ClientVoicechat client, InitializationData initializationData, SoundManager soundManager, UUID uuid) {
         this.client = client;
         this.initializationData = initializationData;
         this.soundManager = soundManager;
         this.uuid = uuid;
-        this.queue = new LinkedBlockingQueue<>();
+        this.queue = new LinkedBlockingQueue<>(MAX_QUEUED_PACKETS);
         this.packetBuffer = new AudioPacketBuffer(VoicechatClient.CLIENT_CONFIG.audioPacketThreshold.get());
         this.lastPacketTime = System.currentTimeMillis();
         this.stopped = false;
@@ -93,7 +98,10 @@ public class AudioChannel extends Thread {
     }
 
     public void addToQueue(SoundPacket<?> p) {
-        queue.add(p);
+        // Drop the oldest packets instead of growing without bounds
+        while (!queue.offer(p)) {
+            queue.poll();
+        }
     }
 
     @Override
