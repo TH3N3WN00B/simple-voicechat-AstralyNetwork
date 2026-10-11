@@ -16,6 +16,16 @@ repositories {
     maven { url = 'https://repo.viaversion.com/' }
 }
 
+// The Paper dev-bundle POM may declare net.kyori:adventure-text-serializer-ansi without a version
+// (it relies on the Adventure BOM), which Gradle can't resolve on its own.
+configurations.configureEach {
+    resolutionStrategy.eachDependency { details ->
+        if (details.requested.group == 'net.kyori' && details.requested.name == 'adventure-text-serializer-ansi' && (details.requested.version == null || details.requested.version.isEmpty())) {
+            details.useVersion('5.2.0')
+        }
+    }
+}
+
 dependencies {
     implementation "io.github.jaredmdobson:concentus:${concentus_version}"
     shadow "io.github.jaredmdobson:concentus:${concentus_version}"
