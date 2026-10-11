@@ -12,7 +12,6 @@ import de.maxhenkel.voicechat.voice.common.Secret;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.dedicated.DedicatedServer;
 import net.minecraft.server.level.ServerPlayer;
 
 import javax.annotation.Nullable;
@@ -84,12 +83,6 @@ public class ServerVoiceEvents {
             return;
         }
 
-        if (mcServer instanceof DedicatedServer) {
-            if (!mcServer.usesAuthentication()) {
-                Voicechat.LOGGER.warn("Running in offline mode - Voice chat encryption is not secure!");
-            }
-        }
-
         try {
             server = new Server(mcServer);
             server.start();
@@ -110,7 +103,15 @@ public class ServerVoiceEvents {
             Voicechat.LOGGER.warn("Player already requested secret - ignoring");
             return;
         }
-        NetManager.sendToClient(player, new SecretPacket(player, secret, server.getPort(), Voicechat.SERVER_CONFIG));
+
+        boolean dedicated = CommonCompatibilityManager.INSTANCE.isDedicatedServer();
+        String configuredVoiceHost = dedicated ? Voicechat.SERVER_CONFIG.voiceHost.get() : "";
+        String voiceHost = PluginManager.instance().getVoiceHost(player, configuredVoiceHost);
+        if (!dedicated && !voiceHost.isEmpty()) {
+            Voicechat.LOGGER.warn("A plugin modified voice_host on a non-dedicated server - Ignore this message if this is intended");
+        }
+
+        NetManager.sendToClient(player, new SecretPacket(player, secret, server.getPort(), Voicechat.SERVER_CONFIG, voiceHost));
         Voicechat.LOGGER.info("Sent secret to {}", player.getName().getString());
     }
 
