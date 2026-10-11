@@ -5,7 +5,7 @@ import de.maxhenkel.voicechat.Voicechat;
 import de.maxhenkel.voicechat.api.opus.OpusDecoder;
 import de.maxhenkel.voicechat.api.opus.OpusEncoder;
 import de.maxhenkel.voicechat.api.opus.OpusEncoderMode;
-import org.concentus.OpusApplication;
+import io.github.jaredmdobson.concentus.OpusApplication;
 
 public class OpusManager {
 

@@ -6,7 +6,7 @@ import de.maxhenkel.voicechat.net.ManageGroupPacket;
 import de.maxhenkel.voicechat.voice.client.ClientManager;
 import de.maxhenkel.voicechat.voice.client.ClientPlayerStateManager;
 import de.maxhenkel.voicechat.voice.common.ClientGroup;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
@@ -45,20 +45,20 @@ public class GroupManagementScreen extends VoiceChatScreenBase {
 
         if (admin) {
             actions.add(Button.builder(Component.translatable("message.voicechat.group_rename_button"), button -> {
-                minecraft.setScreen(new GroupInputScreen.GroupNameInputScreen(group, group.getName()));
+                minecraft.gui.setScreen(new GroupInputScreen.GroupNameInputScreen(group, group.getName()));
             }).bounds(0, 0, 100, BUTTON_HEIGHT).build());
             actions.add(Button.builder(Component.translatable("message.voicechat.group_password_button"), button -> {
-                minecraft.setScreen(new GroupInputScreen.GroupPasswordInputScreen(group));
+                minecraft.gui.setScreen(new GroupInputScreen.GroupPasswordInputScreen(group));
             }).bounds(0, 0, 100, BUTTON_HEIGHT).build());
         }
         if (owner) {
             actions.add(Button.builder(Component.translatable("message.voicechat.group_delete_button"), button -> {
                 ClientServerNetManager.sendToServer(new ManageGroupPacket(ManageGroupPacket.OP_DELETE, null, null));
-                minecraft.setScreen(null);
+                minecraft.gui.setScreen(null);
             }).bounds(0, 0, 100, BUTTON_HEIGHT).build());
         }
         actions.add(Button.builder(Component.translatable("message.voicechat.back"), button -> {
-            minecraft.setScreen(new GroupScreen(group));
+            minecraft.gui.setScreen(new GroupScreen(group));
         }).bounds(0, 0, 100, BUTTON_HEIGHT).build());
 
         ySize = HEADER_SIZE + PADDING + actions.size() * (BUTTON_HEIGHT + BUTTON_GAP) + PADDING;
@@ -75,9 +75,9 @@ public class GroupManagementScreen extends VoiceChatScreenBase {
     }
 
     @Override
-    public void renderForeground(GuiGraphics guiGraphics, int mouseX, int mouseY, float delta) {
+    public void extractForegroundRenderState(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float delta) {
         MutableComponent title = Component.translatable("gui.voicechat.group_management.title", Component.literal(group.getName()));
-        guiGraphics.drawString(font, title, guiLeft + xSize / 2 - font.width(title) / 2, guiTop + 4, FONT_COLOR, false);
+        guiGraphics.text(font, title, guiLeft + xSize / 2 - font.width(title) / 2, guiTop + 4, FONT_COLOR, false);
     }
 
 }

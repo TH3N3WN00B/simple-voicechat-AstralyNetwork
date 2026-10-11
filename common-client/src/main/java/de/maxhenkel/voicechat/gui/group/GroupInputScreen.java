@@ -5,7 +5,8 @@ import de.maxhenkel.voicechat.gui.VoiceChatScreenBase;
 import de.maxhenkel.voicechat.net.ClientServerNetManager;
 import de.maxhenkel.voicechat.net.ManageGroupPacket;
 import de.maxhenkel.voicechat.voice.common.ClientGroup;
-import net.minecraft.client.gui.GuiGraphics;
+import de.maxhenkel.voicechat.gui.widgets.GroupEditBox;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.input.KeyEvent;
@@ -33,9 +34,8 @@ public abstract class GroupInputScreen extends VoiceChatScreenBase {
         super.init();
         clearWidgets();
 
-        input = new EditBox(font, guiLeft + PADDING, guiTop + HEADER_SIZE + font.lineHeight + LABEL_GAP, xSize - PADDING * 2, 14, Component.empty());
+        input = new GroupEditBox(font, guiLeft + PADDING, guiTop + HEADER_SIZE + font.lineHeight + LABEL_GAP, xSize - PADDING * 2, 14);
         input.setMaxLength(Voicechat.MAX_GROUP_NAME_LENGTH);
-        input.setFilter(s -> s.isEmpty() || Voicechat.GROUP_REGEX.matcher(s).matches());
         input.setValue(getInitialValue());
         addRenderableWidget(input);
 
@@ -62,19 +62,19 @@ public abstract class GroupInputScreen extends VoiceChatScreenBase {
     }
 
     @Override
-    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float delta) {
-        renderTransparentBackground(guiGraphics);
+    public void extractBackgroundRenderState(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float delta) {
+        extractTransparentBackground(guiGraphics);
     }
 
     @Override
-    public void renderForeground(GuiGraphics guiGraphics, int mouseX, int mouseY, float delta) {
-        guiGraphics.drawString(font, label(), guiLeft + PADDING + 1, guiTop + HEADER_SIZE, FONT_COLOR, false);
+    public void extractForegroundRenderState(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float delta) {
+        guiGraphics.text(font, label(), guiLeft + PADDING + 1, guiTop + HEADER_SIZE, FONT_COLOR, false);
     }
 
     @Override
     public boolean keyPressed(KeyEvent keyEvent) {
         if (keyEvent.isEscape()) {
-            minecraft.setScreen(new GroupScreen(group));
+            minecraft.gui.setScreen(new GroupScreen(group));
             return true;
         }
         if (super.keyPressed(keyEvent)) {
@@ -106,7 +106,7 @@ public abstract class GroupInputScreen extends VoiceChatScreenBase {
         @Override
         protected void onConfirm(String value) {
             ClientServerNetManager.sendToServer(new ManageGroupPacket(ManageGroupPacket.OP_RENAME, null, value));
-            minecraft.setScreen(new GroupScreen(group));
+            minecraft.gui.setScreen(new GroupScreen(group));
         }
 
         @Override
@@ -137,7 +137,7 @@ public abstract class GroupInputScreen extends VoiceChatScreenBase {
         @Override
         protected void onConfirm(String value) {
             ClientServerNetManager.sendToServer(new ManageGroupPacket(ManageGroupPacket.OP_SET_PASSWORD, null, value.isEmpty() ? null : value));
-            minecraft.setScreen(new GroupScreen(group));
+            minecraft.gui.setScreen(new GroupScreen(group));
         }
 
         @Override

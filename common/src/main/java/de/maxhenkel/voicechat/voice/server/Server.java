@@ -708,6 +708,8 @@ public class Server extends Thread {
         }
         announceModePlayers.remove(uuid);
         return false;
+    }
+
     public boolean isServerMuted(UUID playerUUID) {
         return serverMutedPlayers.contains(playerUUID);
     }

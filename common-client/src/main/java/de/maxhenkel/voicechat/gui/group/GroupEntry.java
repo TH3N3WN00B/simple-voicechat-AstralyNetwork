@@ -88,10 +88,10 @@ public class GroupEntry extends ListScreenEntryBase<GroupEntry> {
         int nameWidth = PADDING + outlineSize + PADDING + minecraft.font.width(name) + PADDING;
         if (group != null && group.isOwner(state.getUuid())) {
             Component ownerTag = Component.translatable("message.voicechat.group_owner_tag").withStyle(ChatFormatting.GOLD);
-            guiGraphics.drawString(minecraft.font, ownerTag, left + nameWidth, top + height / 2 - minecraft.font.lineHeight / 2, ARGB.color(255, 255, 170, 0), false);
+            guiGraphics.text(minecraft.font, ownerTag, left + nameWidth, top + height / 2 - minecraft.font.lineHeight / 2, ARGB.color(255, 255, 170, 0), false);
         } else if (group != null && group.isAdmin(state.getUuid())) {
             Component adminTag = Component.translatable("message.voicechat.group_admin_tag").withStyle(ChatFormatting.AQUA);
-            guiGraphics.drawString(minecraft.font, adminTag, left + nameWidth, top + height / 2 - minecraft.font.lineHeight / 2, ARGB.color(255, 85, 200, 255), false);
+            guiGraphics.text(minecraft.font, adminTag, left + nameWidth, top + height / 2 - minecraft.font.lineHeight / 2, ARGB.color(255, 85, 200, 255), false);
         }
 
         if (hovered && !ClientManager.getPlayerStateManager().getOwnID().equals(state.getUuid())) {
@@ -126,7 +126,7 @@ public class GroupEntry extends ListScreenEntryBase<GroupEntry> {
     }
 
     private void openManageScreen() {
-        minecraft.setScreen(new GroupManageMemberScreen(group, state.getUuid(), state.getName()));
+        minecraft.gui.setScreen(new GroupManageMemberScreen(group, state.getUuid(), state.getName()));
     }
 
     public PlayerState getState() {

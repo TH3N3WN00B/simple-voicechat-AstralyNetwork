@@ -237,7 +237,7 @@ public class ServerGroupManager {
         }
         getStates().setGroup(target, null);
         NetManager.sendToClient(target, new JoinedGroupPacket(null, false));
-        target.displayClientMessage(Component.translatable("message.voicechat.kicked_from_group", Component.literal(group.getName())), false);
+        target.sendSystemMessage(Component.translatable("message.voicechat.kicked_from_group", Component.literal(group.getName())));
         actor.sendOverlayMessage(Component.translatable("message.voicechat.group_kick_success", target.getName()));
     }
 
@@ -346,7 +346,7 @@ public class ServerGroupManager {
             }
             getStates().setGroup(member, null);
             NetManager.sendToClient(member, new JoinedGroupPacket(null, false));
-            member.displayClientMessage(Component.translatable("message.voicechat.group_deleted", Component.literal(group.getName())), false);
+            member.sendSystemMessage(Component.translatable("message.voicechat.group_deleted", Component.literal(group.getName())));
         }
         groups.remove(group.getId());
         broadcastRemoveGroup(group.getId());

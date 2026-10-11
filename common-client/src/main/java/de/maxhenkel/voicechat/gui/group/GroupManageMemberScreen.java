@@ -6,7 +6,7 @@ import de.maxhenkel.voicechat.net.ManageGroupPacket;
 import de.maxhenkel.voicechat.voice.client.ClientManager;
 import de.maxhenkel.voicechat.voice.client.ClientPlayerStateManager;
 import de.maxhenkel.voicechat.voice.common.ClientGroup;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
@@ -53,29 +53,29 @@ public class GroupManageMemberScreen extends VoiceChatScreenBase {
         if (!isSelf && !isOwnerMember && admin) {
             actions.add(Button.builder(Component.translatable("message.voicechat.group_kick_button"), button -> {
                 ClientServerNetManager.sendToServer(new ManageGroupPacket(ManageGroupPacket.OP_KICK, memberUuid, null));
-                minecraft.setScreen(new GroupScreen(group));
+                minecraft.gui.setScreen(new GroupScreen(group));
             }).bounds(0, 0, 100, BUTTON_HEIGHT).build());
         }
         if (!isSelf && !isOwnerMember && !isAdminMember && owner) {
             actions.add(Button.builder(Component.translatable("message.voicechat.group_promote_button"), button -> {
                 ClientServerNetManager.sendToServer(new ManageGroupPacket(ManageGroupPacket.OP_PROMOTE, memberUuid, null));
-                minecraft.setScreen(new GroupScreen(group));
+                minecraft.gui.setScreen(new GroupScreen(group));
             }).bounds(0, 0, 100, BUTTON_HEIGHT).build());
         }
         if (!isSelf && isAdminMember && owner) {
             actions.add(Button.builder(Component.translatable("message.voicechat.group_demote_button"), button -> {
                 ClientServerNetManager.sendToServer(new ManageGroupPacket(ManageGroupPacket.OP_DEMOTE, memberUuid, null));
-                minecraft.setScreen(new GroupScreen(group));
+                minecraft.gui.setScreen(new GroupScreen(group));
             }).bounds(0, 0, 100, BUTTON_HEIGHT).build());
         }
         if (!isSelf && !isOwnerMember && owner) {
             actions.add(Button.builder(Component.translatable("message.voicechat.group_transfer_button"), button -> {
                 ClientServerNetManager.sendToServer(new ManageGroupPacket(ManageGroupPacket.OP_TRANSFER, memberUuid, null));
-                minecraft.setScreen(new GroupScreen(group));
+                minecraft.gui.setScreen(new GroupScreen(group));
             }).bounds(0, 0, 100, BUTTON_HEIGHT).build());
         }
         actions.add(Button.builder(Component.translatable("message.voicechat.back"), button -> {
-            minecraft.setScreen(new GroupScreen(group));
+            minecraft.gui.setScreen(new GroupScreen(group));
         }).bounds(0, 0, 100, BUTTON_HEIGHT).build());
 
         ySize = HEADER_SIZE + PADDING + actions.size() * (BUTTON_HEIGHT + BUTTON_GAP) + PADDING;
@@ -92,9 +92,9 @@ public class GroupManageMemberScreen extends VoiceChatScreenBase {
     }
 
     @Override
-    public void renderForeground(GuiGraphics guiGraphics, int mouseX, int mouseY, float delta) {
+    public void extractForegroundRenderState(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float delta) {
         MutableComponent title = Component.translatable("gui.voicechat.group_manage_member.title", Component.literal(memberName));
-        guiGraphics.drawString(font, title, guiLeft + xSize / 2 - font.width(title) / 2, guiTop + 4, FONT_COLOR, false);
+        guiGraphics.text(font, title, guiLeft + xSize / 2 - font.width(title) / 2, guiTop + 4, FONT_COLOR, false);
     }
 
 }

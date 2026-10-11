@@ -17,7 +17,6 @@ import de.maxhenkel.voicechat.voice.client.ClientPlayerStateManager;
 import de.maxhenkel.voicechat.voice.client.MicrophoneActivationType;
 import de.maxhenkel.voicechat.voice.common.ClientGroup;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -105,7 +104,7 @@ public class GroupScreen extends VoiceChatScreenBase {
         boolean canManage = group.isAdmin(own);
         if (canManage) {
             manage = Button.builder(Component.translatable("gui.voicechat.group.manage"), button -> {
-                minecraft.setScreen(new GroupManagementScreen(group));
+                minecraft.gui.setScreen(new GroupManagementScreen(group));
             }).bounds(guiLeft + 7 + (buttonSize + 3) * 3, buttonY, 52, buttonSize).build();
             addRenderableWidget(manage);
         }
