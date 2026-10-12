@@ -91,7 +91,7 @@ public class GroupTest {
     }
 
     @Test
-    void testClientGroupRolesRoundtrip() {
+    void testClientGroupWireFormatIsUnchanged() {
         UUID id = UUID.randomUUID();
         UUID owner = UUID.randomUUID();
         java.util.List<UUID> admins = java.util.List.of(UUID.randomUUID(), UUID.randomUUID());
@@ -102,13 +102,34 @@ public class GroupTest {
         assertTrue(clientGroup.isAdmin(admins.get(0)));
         assertTrue(clientGroup.isAdmin(owner));
 
+        // Roles are NOT part of the ClientGroup wire format (compatibility with the original mod)
         FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
         clientGroup.toBytes(buf);
         ClientGroup decoded = ClientGroup.fromBytes(buf);
         assertEquals(clientGroup, decoded);
-        assertEquals(owner, decoded.getOwnerUuid());
-        assertEquals(admins, decoded.getAdmins());
-        assertTrue(decoded.isAdmin(admins.get(1)));
+        assertNull(decoded.getOwnerUuid());
+        assertTrue(decoded.getAdmins().isEmpty());
         assertFalse(buf.isReadable());
+    }
+
+    @Test
+    void testGroupRolesPacketRoundtrip() {
+        UUID id = UUID.randomUUID();
+        UUID owner = UUID.randomUUID();
+        java.util.List<UUID> admins = java.util.List.of(UUID.randomUUID(), UUID.randomUUID());
+
+        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
+        new de.maxhenkel.voicechat.net.GroupRolesPacket(id, owner, admins).toBytes(buf);
+        de.maxhenkel.voicechat.net.GroupRolesPacket decoded = new de.maxhenkel.voicechat.net.GroupRolesPacket().fromBytes(buf);
+        assertEquals(id, decoded.getGroupId());
+        assertEquals(owner, decoded.getOwner());
+        assertEquals(admins, decoded.getAdmins());
+        assertFalse(buf.isReadable());
+
+        ClientGroup clientGroup = new ClientGroup(id, "Squad", false, false, false, Type.NORMAL);
+        assertFalse(clientGroup.isAdmin(owner));
+        clientGroup.setRoles(decoded.getOwner(), decoded.getAdmins());
+        assertTrue(clientGroup.isOwner(owner));
+        assertTrue(clientGroup.isAdmin(admins.get(1)));
     }
 }
