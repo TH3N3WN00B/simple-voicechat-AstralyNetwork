@@ -16,9 +16,19 @@ repositories {
     maven { url = 'https://repo.viaversion.com/' }
 }
 
+// The Paper dev-bundle POM may declare net.kyori:adventure-text-serializer-ansi without a version
+// (it relies on the Adventure BOM), which Gradle can't resolve on its own.
+configurations.configureEach {
+    resolutionStrategy.eachDependency { details ->
+        if (details.requested.group == 'net.kyori' && details.requested.name == 'adventure-text-serializer-ansi' && (details.requested.version == null || details.requested.version.isEmpty())) {
+            details.useVersion('4.26.1')
+        }
+    }
+}
+
 dependencies {
-    implementation "org.concentus:Concentus:${concentus_version}"
-    shadow "org.concentus:Concentus:${concentus_version}"
+    implementation "io.github.jaredmdobson:concentus:${concentus_version}"
+    shadow "io.github.jaredmdobson:concentus:${concentus_version}"
 
     implementation "de.maxhenkel.opus4j:opus4j:${opus4j_version}"
     shadow "de.maxhenkel.opus4j:opus4j:${opus4j_version}"
@@ -61,6 +71,6 @@ sourceSets.main.java {
 compileJava.dependsOn generateJava
 
 shadowJar {
-    relocate 'org.concentus', 'de.maxhenkel.voicechat.concentus'
+    relocate 'io.github.jaredmdobson.concentus', 'de.maxhenkel.voicechat.concentus'
     exclude 'natives/*-x86/*'
 }

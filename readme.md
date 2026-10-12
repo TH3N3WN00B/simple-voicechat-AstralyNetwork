@@ -19,6 +19,40 @@ A proximity voice chat for Minecraft with a variety of [addons](https://modrepo.
 :warning: **NOTE** This mod requires special setup on the server in order to work.
 Please read the [wiki](https://modrepo.de/minecraft/voicechat/wiki/setup) for more information.
 
+---
+
+## EscoriasSMP Fork
+
+This repository is a **fork** of [Simple Voice Chat](https://github.com/henkelmax/simple-voice-chat) (branch `1.21.4`) by [Max Henkel (henkelmax)](https://github.com/henkelmax), customized for the **EscoriasSMP** server.
+
+**All credit for the original mod goes to `henkelmax` and the Simple Voice Chat contributors.** This fork only adds a few changes on top of the original:
+
+### Changes in this fork
+
+- **Improved group management**: groups now have an *owner* and *administrators*. Owners and admins can
+  - promote/demote group members (`/voicechat group promote <player>` / `/voicechat group demote <player>`),
+  - kick members (`/voicechat group kick <player>`),
+  - transfer ownership (`/voicechat group transfer <player>`),
+  - rename the group (`/voicechat group rename <name>`),
+  - and change the group password after creation (`/voicechat group password <password>`).
+  No group member can be removed without the owner's or an admin's action.
+- **Server-side mute**: operators can mute a player with `/voicechat mute <player>` (their voice is ignored) and unmute them with `/voicechat unmute <player>`.
+- **Megaphone**: a wider, configurable voice range (`megaphone_distance` in the server config, `128` by default).
+  Bind the *Megaphone* key and hold it while talking to be heard further away than normal proximity voice.
+- **Announce mode (voice broadcast)**: `/voicechat announce` is an **operator-only** toggle. While enabled, the player's voice is heard by **everyone** on the server — including players inside groups or isolated rooms. No chat message is sent, it is a pure voice broadcast.
+  Requires the `voicechat.announce` permission (granted to operators by default). The legacy client-side *Announce* key still works as an alternative while held.
+- **Performance & stability**:
+  - O(1) UDP sender lookup on the server (reverse address index), replacing a per-packet scan over all connections.
+  - Bounded UDP packet queue with backpressure — no memory blow-up under overload.
+  - Bounded caches and stale state is cleaned up on player disconnects (cooldown timers, plugin audio listeners, mute/announce state).
+  - Client audio channels are fully closed on voice disconnect (no leaked OpenAL speakers/buffers), and less garbage is allocated in the hot audio paths.
+
+Everything else (proximity voice, groups, permissions, Opus/RNNoise, audio recording, etc.) works exactly like in the original Simple Voice Chat.
+
+**Original project:** https://github.com/henkelmax/simple-voice-chat
+
+---
+
 <p align="center">
     <a href="https://discord.gg/4dH2zwTmyX">
         <img src="assets/discord.svg" width="300">
