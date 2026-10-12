@@ -41,13 +41,25 @@ public class AudioChannel extends Thread {
     private final OpusDecoder decoder;
     private long lastSequenceNumber;
     private long lostPackets;
+    /**
+     * Maximum number of lost frames reconstructed via Opus PLC/FEC in one go.
+     * Beyond this, PLC quality degrades into muffled/looped audio, so the gap is
+     * capped and the decoder resynchronized — resulting silence is smoother than
+     * playing distorted long-form PLC output.
+     */
+    private static final int MAX_PLC_FRAMES = 10;
+    /**
+     * Upper bound of queued packets (~4 s of audio at 50 packets/s). Prevents unbounded
+     * memory growth if the channel thread stalls or a server floods the client.
+     */
+    private static final int MAX_QUEUED_PACKETS = 200;
 
     public AudioChannel(ClientVoicechat client, InitializationData initializationData, SoundManager soundManager, UUID uuid) {
         this.client = client;
         this.initializationData = initializationData;
         this.soundManager = soundManager;
         this.uuid = uuid;
-        this.queue = new LinkedBlockingQueue<>();
+        this.queue = new LinkedBlockingQueue<>(MAX_QUEUED_PACKETS);
         this.packetBuffer = new AudioPacketBuffer(VoicechatClient.CLIENT_CONFIG.audioPacketThreshold.get());
         this.lastPacketTime = System.currentTimeMillis();
         this.stopped = false;
@@ -86,7 +98,10 @@ public class AudioChannel extends Thread {
     }
 
     public void addToQueue(SoundPacket<?> p) {
-        queue.add(p);
+        // Drop the oldest packets instead of growing without bounds
+        while (!queue.offer(p)) {
+            queue.poll();
+        }
     }
 
     @Override
@@ -130,7 +145,7 @@ public class AudioChannel extends Thread {
                         ClientPluginManager.instance().onReceiveEntityClientSound(uuid, playerSoundPacket.getSender(), new short[0], playerSoundPacket.isWhispering(), playerSoundPacket.getDistance());
                     } else if (packet instanceof LocationSoundPacket locationSoundPacket) {
                         ClientPluginManager.instance().onReceiveLocationalClientSound(uuid, new short[0], locationSoundPacket.getLocation(), locationSoundPacket.getDistance());
-                    } else if (packet instanceof GroupSoundPacket) {
+                    } else if (packet instanceof GroupSoundPacket || packet instanceof AnnouncementSoundPacket) {
                         ClientPluginManager.instance().onReceiveStaticClientSound(uuid, new short[0]);
                     }
                     lastSequenceNumber = -1L;
@@ -148,19 +163,25 @@ public class AudioChannel extends Thread {
 
                 int packetsToCompensate = 0;
                 if (lastSequenceNumber >= 0) {
-                    packetsToCompensate = (int) (packet.getSequenceNumber() - (lastSequenceNumber + 1));
+                    int gap = (int) (packet.getSequenceNumber() - (lastSequenceNumber + 1));
 
-                    if (packetsToCompensate > 0) {
-                        lostPackets += packetsToCompensate;
-                    }
+                    if (gap > 0) {
+                        lostPackets += gap;
 
-                    if (packetsToCompensate > VoicechatClient.CLIENT_CONFIG.outputBufferSize.get()) {
-                        Voicechat.LOGGER.debug("Skipping compensation for {} packets", packetsToCompensate);
-                        packetsToCompensate = 0;
-                        decoder.resetState();
-                        flushRecording();
-                    } else if (packetsToCompensate > 0) {
-                        Voicechat.LOGGER.debug("Compensating {} packet(s) ", packetsToCompensate);
+                        if (gap > MAX_PLC_FRAMES) {
+                            // Large burst loss: cap the PLC reconstruction (long PLC
+                            // performance degrades into artifacts), resync the decoder
+                            // and drop the recording chunk so playback resumes cleanly.
+                            // The capped PLC frames coming out of a reset are near-silence,
+                            // which is far smoother than a hard cut or decaying loops.
+                            Voicechat.LOGGER.debug("Skipping compensation for {} packets", gap);
+                            packetsToCompensate = MAX_PLC_FRAMES;
+                            decoder.resetState();
+                            flushRecording();
+                        } else {
+                            packetsToCompensate = gap;
+                            Voicechat.LOGGER.debug("Compensating {} packet(s) ", packetsToCompensate);
+                        }
                     }
                 }
 
@@ -212,6 +233,10 @@ public class AudioChannel extends Thread {
             short[] processedMonoData = ClientPluginManager.instance().onReceiveStaticClientSound(uuid, monoData);
             speaker.play(processedMonoData, volume, packet.getCategory());
             client.getTalkCache().updateLevel(uuid, category, false, processedMonoData);
+            appendRecording(() -> PositionalAudioUtils.convertToStereo(processedMonoData));
+        } else if (packet instanceof AnnouncementSoundPacket) {
+            short[] processedMonoData = ClientPluginManager.instance().onReceiveStaticClientSound(uuid, monoData);
+            speaker.play(processedMonoData, volume, packet.getCategory());
             appendRecording(() -> PositionalAudioUtils.convertToStereo(processedMonoData));
         } else if (packet instanceof PlayerSoundPacket soundPacket) {
             @Nullable Entity entity = minecraft.level.getPlayerByUUID(soundPacket.getSender());
