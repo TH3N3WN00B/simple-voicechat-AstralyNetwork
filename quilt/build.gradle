@@ -76,8 +76,8 @@ dependencies {
         transitive false
     }
 
-    implementation "org.concentus:Concentus:${concentus_version}"
-    shadow "org.concentus:Concentus:${concentus_version}"
+    implementation "io.github.jaredmdobson:concentus:${concentus_version}"
+    shadow "io.github.jaredmdobson:concentus:${concentus_version}"
 
     implementation "de.maxhenkel.opus4j:opus4j:${opus4j_version}"
     shadow "de.maxhenkel.opus4j:opus4j:${opus4j_version}"
@@ -120,7 +120,7 @@ sourceSets {
 }
 
 shadowJar {
-    relocate 'org.concentus', 'de.maxhenkel.voicechat.concentus'
+    relocate 'io.github.jaredmdobson.concentus', 'de.maxhenkel.voicechat.concentus'
     exclude 'natives/*-x86/*'
 }
 

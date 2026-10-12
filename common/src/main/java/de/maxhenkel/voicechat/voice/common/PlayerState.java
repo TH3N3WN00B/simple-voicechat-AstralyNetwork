@@ -11,6 +11,7 @@ public class PlayerState {
     private String name;
     private boolean disabled;
     private boolean disconnected;
+    private boolean muted;
     @Nullable
     private UUID group;
 
@@ -19,6 +20,7 @@ public class PlayerState {
         this.name = name;
         this.disabled = disabled;
         this.disconnected = disconnected;
+        this.muted = false;
     }
 
     public UUID getUuid() {
@@ -53,6 +55,14 @@ public class PlayerState {
         this.disconnected = disconnected;
     }
 
+    public boolean isMuted() {
+        return muted;
+    }
+
+    public void setMuted(boolean muted) {
+        this.muted = muted;
+    }
+
     @Nullable
     public UUID getGroup() {
         return group;
@@ -71,6 +81,7 @@ public class PlayerState {
         return "{" +
                 "disabled=" + disabled +
                 ", disconnected=" + disconnected +
+                ", muted=" + muted +
                 ", uuid=" + uuid +
                 ", name=" + name +
                 ", group=" + group +
