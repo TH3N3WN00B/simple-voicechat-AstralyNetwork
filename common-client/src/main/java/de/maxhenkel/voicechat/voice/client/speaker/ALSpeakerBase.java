@@ -83,8 +83,10 @@ public abstract class ALSpeakerBase implements Speaker {
             boolean stopped = isStoppedSync();
             if (stopped) {
                 Voicechat.LOGGER.debug("Filling playback buffer {}", audioChannelId);
-                for (int i = 0; i < getBufferSize(); i++) {
-                    writeSync(new short[bufferSize], 1F, position, category, maxDistance);
+                short[] silence = new short[bufferSize];
+                int preFill = getBufferSize();
+                for (int i = 0; i < preFill; i++) {
+                    writeSync(silence, 1F, position, category, maxDistance);
                 }
             }
 
@@ -92,17 +94,33 @@ public abstract class ALSpeakerBase implements Speaker {
 
             if (stopped) {
                 AL11.alSourcePlay(source);
-                SoundManager.checkAlError();
+                checkAlError();
             }
         });
     }
 
     protected boolean isStoppedSync() {
-        return getStateSync() == AL11.AL_INITIAL || getStateSync() == AL11.AL_STOPPED || getQueuedBuffersSync() <= 0;
+        int state = AL11.alGetSourcei(source, AL11.AL_SOURCE_STATE);
+        int queued = AL11.alGetSourcei(source, AL11.AL_BUFFERS_QUEUED);
+        return state == AL11.AL_INITIAL || state == AL11.AL_STOPPED || queued <= 0;
     }
 
     protected int getBufferSize() {
         return VoicechatClient.CLIENT_CONFIG.outputBufferSize.get();
+    }
+
+    /**
+     * Lightweight AL error check used on the hot audio path.
+     * Unlike {@link SoundManager#checkAlError()}, this does NOT capture
+     * {@link Thread#getStackTrace()} on the happy path (no error).
+     */
+    private static boolean checkAlError() {
+        int error = AL11.alGetError();
+        if (error == AL11.AL_NO_ERROR) {
+            return false;
+        }
+        Voicechat.LOGGER.error("ALSpeakerBase AL error: {}", SoundManager.getAlError(error));
+        return true;
     }
 
     protected void writeSync(short[] data, float volume, @Nullable Vec3 position, @Nullable String category, float maxDistance) {
@@ -111,27 +129,20 @@ public abstract class ALSpeakerBase implements Speaker {
         ClientPluginManager.instance().onALSound(source, audioChannelId, position, category, OpenALSoundEvent.class);
 
         AL11.alSourcef(source, AL11.AL_MAX_GAIN, soundManager.getMaxGain());
-        SoundManager.checkAlError();
         AL11.alSourcef(source, AL11.AL_GAIN, getVolume(volume, position, maxDistance));
-        SoundManager.checkAlError();
         AL11.alListenerf(AL11.AL_GAIN, 1F);
-        SoundManager.checkAlError();
 
-        int queuedBuffers = getQueuedBuffersSync();
+        int queuedBuffers = AL11.alGetSourcei(source, AL11.AL_BUFFERS_QUEUED);
         if (queuedBuffers >= buffers.length) {
             Voicechat.LOGGER.warn("Full playback buffer: {}/{}", queuedBuffers, buffers.length);
             int sampleOffset = AL11.alGetSourcei(source, AL11.AL_SAMPLE_OFFSET);
-            SoundManager.checkAlError();
             int buffersToSkip = queuedBuffers - getBufferSize();
             AL11.alSourcei(source, AL11.AL_SAMPLE_OFFSET, sampleOffset + buffersToSkip * bufferSampleSize);
-            SoundManager.checkAlError();
             removeProcessedBuffersSync();
         }
 
         AL11.alBufferData(buffers[bufferIndex], getFormat(), convert(data, position), sampleRate);
-        SoundManager.checkAlError();
         AL11.alSourceQueueBuffers(source, buffers[bufferIndex]);
-        SoundManager.checkAlError();
         bufferIndex = (bufferIndex + 1) % buffers.length;
 
         ClientPluginManager.instance().onALSound(source, audioChannelId, position, category, OpenALSoundEvent.Post.class);
@@ -143,13 +154,10 @@ public abstract class ALSpeakerBase implements Speaker {
 
     protected void linearAttenuation(float maxDistance) {
         AL11.alDistanceModel(AL11.AL_LINEAR_DISTANCE);
-        SoundManager.checkAlError();
 
         AL11.alSourcef(source, AL11.AL_MAX_DISTANCE, maxDistance);
-        SoundManager.checkAlError();
 
         AL11.alSourcef(source, AL11.AL_REFERENCE_DISTANCE, maxDistance / 2F);
-        SoundManager.checkAlError();
     }
 
     protected abstract int getFormat();
@@ -158,27 +166,30 @@ public abstract class ALSpeakerBase implements Speaker {
         return data;
     }
 
+    private static final ThreadLocal<float[]> ORIENTATION = ThreadLocal.withInitial(() -> new float[6]);
+
     protected void setPositionSync(@Nullable Vec3 soundPos, float maxDistance) {
         CameraState camera = ClientManager.getCameraState();
         Vec3 position = camera.position();
         Vector3fc look = camera.forward();
         Vector3fc up = camera.up();
         AL11.alListener3f(AL11.AL_POSITION, (float) position.x, (float) position.y, (float) position.z);
-        SoundManager.checkAlError();
-        AL11.alListenerfv(AL11.AL_ORIENTATION, new float[]{look.x(), look.y(), look.z(), up.x(), up.y(), up.z()});
-        SoundManager.checkAlError();
+        float[] orientation = ORIENTATION.get();
+        orientation[0] = look.x();
+        orientation[1] = look.y();
+        orientation[2] = look.z();
+        orientation[3] = up.x();
+        orientation[4] = up.y();
+        orientation[5] = up.z();
+        AL11.alListenerfv(AL11.AL_ORIENTATION, orientation);
         if (soundPos != null) {
             linearAttenuation(maxDistance);
             AL11.alSourcei(source, AL11.AL_SOURCE_RELATIVE, AL11.AL_FALSE);
-            SoundManager.checkAlError();
             AL11.alSource3f(source, AL11.AL_POSITION, (float) soundPos.x, (float) soundPos.y, (float) soundPos.z);
-            SoundManager.checkAlError();
         } else {
             linearAttenuation(48F);
             AL11.alSourcei(source, AL11.AL_SOURCE_RELATIVE, AL11.AL_TRUE);
-            SoundManager.checkAlError();
             AL11.alSource3f(source, AL11.AL_POSITION, 0F, 0F, 0F);
-            SoundManager.checkAlError();
         }
     }
 
@@ -187,13 +198,13 @@ public abstract class ALSpeakerBase implements Speaker {
         runInContext(this::closeSync);
         executor.shutdown();
         try {
-            if (executor.awaitTermination(1L, TimeUnit.SECONDS)) {
-                soundManager.untrackSpeaker(this);
-            } else {
+            if (!executor.awaitTermination(1L, TimeUnit.SECONDS)) {
                 Voicechat.LOGGER.warn("Timed out waiting for speaker to close");
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        } finally {
+            soundManager.untrackSpeaker(this);
         }
     }
 
@@ -222,10 +233,8 @@ public abstract class ALSpeakerBase implements Speaker {
 
     protected void removeProcessedBuffersSync() {
         int processed = AL11.alGetSourcei(source, AL11.AL_BUFFERS_PROCESSED);
-        SoundManager.checkAlError();
         for (int i = 0; i < processed; i++) {
             AL11.alSourceUnqueueBuffers(source);
-            SoundManager.checkAlError();
         }
     }
 
