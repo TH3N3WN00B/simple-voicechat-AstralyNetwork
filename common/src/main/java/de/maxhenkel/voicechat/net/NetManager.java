@@ -19,6 +19,7 @@ public abstract class NetManager {
     public Channel<LeaveGroupPacket> leaveGroupChannel;
     public Channel<JoinedGroupPacket> joinedGroupChannel;
     public Channel<ManageGroupPacket> manageGroupChannel;
+    public Channel<GroupRolesPacket> groupRolesChannel;
     public Channel<AddCategoryPacket> addCategoryChannel;
     public Channel<RemoveCategoryPacket> removeCategoryChannel;
 
@@ -36,6 +37,7 @@ public abstract class NetManager {
         leaveGroupChannel = registerReceiver(LeaveGroupPacket.class, false, true);
         joinedGroupChannel = registerReceiver(JoinedGroupPacket.class, true, false);
         manageGroupChannel = registerReceiver(ManageGroupPacket.class, false, true);
+        groupRolesChannel = registerReceiver(GroupRolesPacket.class, true, false);
         addCategoryChannel = registerReceiver(AddCategoryPacket.class, true, false);
         removeCategoryChannel = registerReceiver(RemoveCategoryPacket.class, true, false);
     }
@@ -49,6 +51,21 @@ public abstract class NetManager {
             return;
         }
         CommonCompatibilityManager.INSTANCE.getNetManager().sendToClient(packet, player);
+    }
+
+    /**
+     * Sends a fork-only packet. Clients without the fork extension may not know the channel,
+     * in which case sending can fail - that must never affect the regular voice chat flow.
+     */
+    public static void sendToClientOptional(ServerPlayer player, Packet<?> packet) {
+        if (!Voicechat.SERVER.isCompatible(player)) {
+            return;
+        }
+        try {
+            CommonCompatibilityManager.INSTANCE.getNetManager().sendToClient(packet, player);
+        } catch (Throwable e) {
+            Voicechat.LOGGER.debug("Failed to send optional packet {} to {}", packet.getClass().getSimpleName(), player.getName().getString(), e);
+        }
     }
 
     public abstract void sendToClient(Packet<?> packet, ServerPlayer player);

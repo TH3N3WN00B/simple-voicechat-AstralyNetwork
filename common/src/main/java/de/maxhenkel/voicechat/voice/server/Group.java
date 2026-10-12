@@ -1,5 +1,6 @@
 package de.maxhenkel.voicechat.voice.server;
 
+import de.maxhenkel.voicechat.net.GroupRolesPacket;
 import de.maxhenkel.voicechat.voice.common.ClientGroup;
 
 import javax.annotation.Nullable;
@@ -136,6 +137,10 @@ public class Group {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public GroupRolesPacket toRolesPacket() {
+        return new GroupRolesPacket(id, ownerUuid, getAdminList());
     }
 
     public ClientGroup toClientGroup() {

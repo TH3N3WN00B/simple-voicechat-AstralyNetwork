@@ -3,6 +3,7 @@ package de.maxhenkel.voicechat.voice.server;
 import de.maxhenkel.voicechat.Voicechat;
 import de.maxhenkel.voicechat.intercompatibility.CommonCompatibilityManager;
 import de.maxhenkel.voicechat.net.AddGroupPacket;
+import de.maxhenkel.voicechat.net.GroupRolesPacket;
 import de.maxhenkel.voicechat.net.JoinedGroupPacket;
 import de.maxhenkel.voicechat.net.ManageGroupPacket;
 import de.maxhenkel.voicechat.net.NetManager;
@@ -79,6 +80,7 @@ public class ServerGroupManager {
         Voicechat.LOGGER.debug("Synchronizing {} groups with {}", groups.size(), player.getName().getString());
         for (Group group : groups.values()) {
             NetManager.sendToClient(player, new AddGroupPacket(group.toClientGroup()));
+            NetManager.sendToClientOptional(player, group.toRolesPacket());
         }
     }
 
@@ -392,7 +394,11 @@ public class ServerGroupManager {
 
     private void broadcastAddGroup(Group group) {
         AddGroupPacket packet = new AddGroupPacket(group.toClientGroup());
-        server.getServer().getPlayerList().getPlayers().forEach(p -> NetManager.sendToClient(p, packet));
+        GroupRolesPacket rolesPacket = group.toRolesPacket();
+        server.getServer().getPlayerList().getPlayers().forEach(p -> {
+            NetManager.sendToClient(p, packet);
+            NetManager.sendToClientOptional(p, rolesPacket);
+        });
     }
 
     private void broadcastRemoveGroup(UUID group) {

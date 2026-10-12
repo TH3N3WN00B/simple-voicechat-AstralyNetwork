@@ -18,9 +18,10 @@ public class ClientGroup {
     private final boolean persistent;
     private final boolean hidden;
     private final de.maxhenkel.voicechat.api.Group.Type type;
+    // Fork extension, not part of the original wire format (see GroupRolesPacket)
     @Nullable
-    private final UUID ownerUuid;
-    private final List<UUID> admins;
+    private volatile UUID ownerUuid;
+    private volatile List<UUID> admins;
 
     public ClientGroup(UUID id, String name, boolean hasPassword, boolean persistent, boolean hidden, de.maxhenkel.voicechat.api.Group.Type type) {
         this(id, name, hasPassword, persistent, hidden, type, null, new ArrayList<>());
@@ -70,6 +71,11 @@ public class ClientGroup {
         return admins;
     }
 
+    public void setRoles(@Nullable UUID ownerUuid, List<UUID> admins) {
+        this.ownerUuid = ownerUuid;
+        this.admins = admins == null ? new ArrayList<>() : admins;
+    }
+
     public boolean isOwner(UUID playerUuid) {
         return ownerUuid != null && ownerUuid.equals(playerUuid);
     }
@@ -85,16 +91,7 @@ public class ClientGroup {
         boolean persistent = buf.readBoolean();
         boolean hidden = buf.readBoolean();
         de.maxhenkel.voicechat.api.Group.Type type = GroupImpl.TypeImpl.fromInt(buf.readShort());
-        UUID ownerUuid = null;
-        if (buf.readBoolean()) {
-            ownerUuid = buf.readUUID();
-        }
-        int adminCount = buf.readVarInt();
-        List<UUID> admins = new ArrayList<>(adminCount);
-        for (int i = 0; i < adminCount; i++) {
-            admins.add(buf.readUUID());
-        }
-        return new ClientGroup(id, name, hasPassword, persistent, hidden, type, ownerUuid, admins);
+        return new ClientGroup(id, name, hasPassword, persistent, hidden, type);
     }
 
     public void toBytes(FriendlyByteBuf buf) {
@@ -104,14 +101,6 @@ public class ClientGroup {
         buf.writeBoolean(persistent);
         buf.writeBoolean(hidden);
         buf.writeShort(GroupImpl.TypeImpl.toInt(type));
-        buf.writeBoolean(ownerUuid != null);
-        if (ownerUuid != null) {
-            buf.writeUUID(ownerUuid);
-        }
-        buf.writeVarInt(admins.size());
-        for (UUID admin : admins) {
-            buf.writeUUID(admin);
-        }
     }
 
     @Override

@@ -100,8 +100,6 @@ public class PlayerState {
             state.setGroup(buf.readUUID());
         }
 
-        state.setMuted(buf.readBoolean());
-
         return state;
     }
 
@@ -114,7 +112,6 @@ public class PlayerState {
         if (hasGroup()) {
             buf.writeUUID(group);
         }
-        buf.writeBoolean(muted);
     }
 
 }
