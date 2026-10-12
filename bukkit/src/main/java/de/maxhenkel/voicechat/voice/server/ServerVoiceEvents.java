@@ -110,6 +110,9 @@ public class ServerVoiceEvents implements Listener {
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
+        if (server == null) {
+            return;
+        }
         server.getPlayerStateManager().onPlayerJoin(event);
 
         if (!Voicechat.SERVER_CONFIG.forceVoiceChat.get()) {
@@ -133,14 +136,14 @@ public class ServerVoiceEvents implements Listener {
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
+        if (server == null) {
+            return;
+        }
         server.getPlayerStateManager().onPlayerQuit(event);
         server.getGroupManager().onPlayerQuit(event);
 
         clientCompatibilities.remove(event.getPlayer().getUniqueId());
         rateLimiter.onPlayerLoggedOut(event.getPlayer());
-        if (server == null) {
-            return;
-        }
 
         server.disconnectClient(event.getPlayer().getUniqueId());
         Voicechat.LOGGER.info("Disconnecting client {}", event.getPlayer().getName());

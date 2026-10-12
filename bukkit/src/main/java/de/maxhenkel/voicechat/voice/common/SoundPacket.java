@@ -14,6 +14,12 @@ public abstract class SoundPacket<T extends SoundPacket> implements Packet<T> {
     protected long sequenceNumber;
     @Nullable
     protected String category;
+    /**
+     * Cached plaintext wire format. A sound packet is serialized once and then
+     * encrypted separately for every receiver in range.
+     */
+    @Nullable
+    private volatile byte[] serializedCache;
 
     public SoundPacket(UUID channelId, UUID sender, byte[] data, long sequenceNumber, @Nullable String category) {
         this.channelId = channelId;
@@ -46,6 +52,15 @@ public abstract class SoundPacket<T extends SoundPacket> implements Packet<T> {
     @Nullable
     public String getCategory() {
         return category;
+    }
+
+    @Nullable
+    public byte[] getSerializedCache() {
+        return serializedCache;
+    }
+
+    public void setSerializedCache(byte[] serializedCache) {
+        this.serializedCache = serializedCache;
     }
 
     protected boolean hasFlag(byte data, byte mask) {

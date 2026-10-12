@@ -230,7 +230,6 @@ public class SoundManager {
             return false;
         }
         boolean success = EXTThreadLocalContext.alcSetThreadContext(alcContext);
-        checkAlcError(device);
         if (success) {
             AL.setCurrentThread(alCaps);
         }
@@ -240,7 +239,6 @@ public class SoundManager {
     public void closeContext() {
         AL.setCurrentThread(null);
         EXTThreadLocalContext.alcSetThreadContext(0L);
-        checkAlcError(device);
     }
 
     public static boolean checkAlError() {
