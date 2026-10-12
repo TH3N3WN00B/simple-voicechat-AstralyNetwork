@@ -24,6 +24,13 @@ public class ClientGroupManager {
             Voicechat.LOGGER.debug("Added group '{}' ({})", packet.getGroup().getName(), packet.getGroup().getId());
             JoinGroupList.update();
         });
+        ClientServerNetManager.setClientListener(CommonCompatibilityManager.INSTANCE.getNetManager().groupRolesChannel, (client, handler, packet) -> {
+            ClientGroup group = groups.get(packet.getGroupId());
+            if (group != null) {
+                group.setRoles(packet.getOwner(), packet.getAdmins());
+                JoinGroupList.update();
+            }
+        });
         ClientServerNetManager.setClientListener(CommonCompatibilityManager.INSTANCE.getNetManager().removeGroupChannel, (client, handler, packet) -> {
             groups.remove(packet.getGroupId());
             Voicechat.LOGGER.debug("Removed group {}", packet.getGroupId());
