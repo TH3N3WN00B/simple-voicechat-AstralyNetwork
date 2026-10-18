@@ -1,0 +1,10 @@
+{
+  "pack": {
+    "pack_format": 64,
+    "description": {
+      "type": "translatable",
+      "translate": "resourcepack.voicechat.white_icons.description",
+      "color": "gray"
+    }
+  }
+}

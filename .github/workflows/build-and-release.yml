@@ -3,7 +3,7 @@ name: Build & Release
 on:
   push:
     branches:
-      - '**'
+      - main
     tags:
       - 'v*'
       - '[0-9]*'
@@ -20,55 +20,49 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['1.20.1', '1.21.1', '1.21.4', '1.21.5', '1.21.8', '1.21.10', '1.21.11', '26.1', '26.2', '26.3']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
-          java-version: '25'
+          java-version: |
+            17
+            21
+            25
       - uses: gradle/actions/setup-gradle@v6
-      - name: Build root modules (Fabric, Forge, NeoForge, Paper) and run tests
+      - name: Build ${{ matrix.version }}
         shell: bash
         run: |
-          for i in $(seq 1 5); do
-            if ./gradlew :fabric:build :forge:build :neoforge:build :paper:build --console=plain; then
+          for i in $(seq 1 3); do
+            if ./build-all.sh ${{ matrix.version }}; then
               exit 0
             fi
             echo "Build attempt $i failed, retrying in 30s..."
             sleep 30
           done
           exit 1
-      - name: Build Quilt
-        working-directory: quilt
-        shell: bash
-        run: |
-          chmod +x ./gradlew
-          for i in $(seq 1 5); do
-            if ./gradlew :build --console=plain; then
-              exit 0
-            fi
-            echo "Quilt build attempt $i failed, retrying in 30s..."
-            sleep 30
-          done
-          exit 1
-      - name: Collect jars
-        shell: bash
-        run: |
-          mkdir -p artifacts
-          for dir in fabric/build/libs forge/build/libs neoforge/build/libs paper/build/libs quilt/build/libs; do
-            if [ -d "$dir" ]; then
-              find "$dir" -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name '*-shadow-dev.jar' -exec cp -f {} artifacts/ \;
-            fi
-          done
-          ls -la artifacts
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: simple-voicechat-EscoriasSMP-${{ github.run_id }}
-          path: artifacts/*.jar
+          name: simple-voicechat-${{ matrix.version }}
+          path: dist/${{ matrix.version }}/*.jar
           if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: simple-voicechat-*
+          merge-multiple: true
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*.jar

@@ -1,0 +1,308 @@
+package de.maxhenkel.voicechat.voice.client;
+
+import de.maxhenkel.voicechat.Voicechat;
+import de.maxhenkel.voicechat.VoicechatClient;
+import de.maxhenkel.voicechat.plugins.ClientPluginManager;
+import de.maxhenkel.voicechat.voice.client.speaker.Speaker;
+import de.maxhenkel.voicechat.voice.client.speaker.SpeakerException;
+import org.lwjgl.openal.*;
+
+import javax.annotation.Nullable;
+import java.nio.IntBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.Executor;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+public class SoundManager {
+
+    @Nullable
+    private final String deviceName;
+    private volatile long device;
+    private volatile long context;
+    private final ALCapabilities alCaps;
+    private final float maxGain;
+    private final Set<Speaker> speakers = new HashSet<>();
+    private boolean closing;
+
+    public SoundManager(@Nullable String deviceName, long device, long context, ALCapabilities alCaps, float maxGain) {
+        this.deviceName = deviceName;
+        this.device = device;
+        this.context = context;
+        this.alCaps = alCaps;
+        this.maxGain = maxGain;
+    }
+
+    public static SoundManager create() throws SpeakerException {
+        return create(VoicechatClient.CLIENT_CONFIG.speaker.get());
+    }
+
+    public static SoundManager create(@Nullable String deviceName) throws SpeakerException {
+        long device = 0L;
+        long context = 0L;
+        try {
+            device = openSpeaker(deviceName);
+            if (!ALC11.alcIsExtensionPresent(device, "ALC_EXT_thread_local_context")) {
+                throw new SpeakerException("OpenAL extension 'ALC_EXT_thread_local_context' is not supported");
+            }
+            context = ALC11.alcCreateContext(device, (IntBuffer) null);
+            if (context == 0L) {
+                int error = ALC11.alcGetError(device);
+                throw new SpeakerException(String.format("Failed to create OpenAL context: %s", getAlcError(error)));
+            }
+            if (!EXTThreadLocalContext.alcSetThreadContext(context)) {
+                int error = ALC11.alcGetError(device);
+                throw new SpeakerException(String.format("Failed to make OpenAL context current: %s", getAlcError(error)));
+            }
+
+            ALCapabilities alCaps = AL.createCapabilities(ALC.createCapabilities(device));
+
+            float maxGain;
+
+            if (alCaps.AL_SOFT_gain_clamp_ex) {
+                maxGain = AL11.alGetFloat(SOFTGainClampEx.AL_GAIN_LIMIT_SOFT);
+                checkAlcError(device);
+            } else {
+                maxGain = 1F;
+                Voicechat.LOGGER.warn("OpenAL extension 'AL_SOFT_gain_clamp_ex' not supported - Voice chat volume can't exceed 100%");
+            }
+
+            ClientPluginManager.instance().onCreateALContext(context, device);
+
+            SoundManager soundManager = new SoundManager(deviceName, device, context, alCaps, maxGain);
+            device = 0L;
+            context = 0L;
+            return soundManager;
+        } catch (SpeakerException speakerException) {
+            throw speakerException;
+        } catch (Throwable t) {
+            throw new SpeakerException("Failed to initialize OpenAL context", t);
+        } finally {
+            EXTThreadLocalContext.alcSetThreadContext(0L);
+            AL.setCurrentThread(null);
+            if (context != 0L) {
+                ALC11.alcDestroyContext(context);
+            }
+            if (device != 0L && !ALC11.alcCloseDevice(device)) {
+                Voicechat.LOGGER.warn("Failed to close audio device");
+            }
+        }
+    }
+
+    public void trackSpeaker(Speaker speaker) throws SpeakerException {
+        synchronized (speakers) {
+            if (closing) {
+                throw new SpeakerException("Sound manager is closing");
+            }
+            speakers.add(speaker);
+        }
+    }
+
+    public void untrackSpeaker(Speaker speaker) {
+        synchronized (speakers) {
+            speakers.remove(speaker);
+        }
+    }
+
+    public boolean isClosing() {
+        synchronized (speakers) {
+            return closing;
+        }
+    }
+
+    private void closeSpeakers() {
+        List<Speaker> toClose;
+        synchronized (speakers) {
+            closing = true;
+            toClose = new ArrayList<>(speakers);
+            speakers.clear();
+        }
+        for (Speaker speaker : toClose) {
+            speaker.close();
+        }
+    }
+
+    public void close() {
+        closeSpeakers();
+        if (isClosed()) {
+            return;
+        }
+        long ctx = context;
+        long dev = device;
+        context = 0L;
+        device = 0L;
+
+        ClientPluginManager.instance().onDestroyALContext(ctx, dev);
+        ALC11.alcDestroyContext(ctx);
+        checkAlcError(dev);
+        if (!ALC11.alcCloseDevice(dev)) {
+            checkAlcError(dev);
+        }
+    }
+
+    public float getMaxGain() {
+        return maxGain;
+    }
+
+    public boolean isClosed() {
+        return context == 0 || device == 0;
+    }
+
+    private static long openSpeaker(@Nullable String name) throws SpeakerException {
+        try {
+            return tryOpenSpeaker(name);
+        } catch (SpeakerException e) {
+            if (name == null) {
+                throw e;
+            }
+            Voicechat.LOGGER.warn("Failed to open audio device '{}', falling back to default", name);
+            return tryOpenSpeaker(null);
+        }
+    }
+
+    private static long tryOpenSpeaker(@Nullable String string) throws SpeakerException {
+        long device = ALC11.alcOpenDevice(string);
+        if (device == 0L) {
+            if (string == null) {
+                throw new SpeakerException("Failed to open default audio device");
+            }
+            throw new SpeakerException(String.format("Failed to open audio device: Audio device '%s' not found", string));
+        }
+        int error = ALC11.alcGetError(device);
+        if (error != ALC11.ALC_NO_ERROR) {
+            if (!ALC11.alcCloseDevice(device)) {
+                Voicechat.LOGGER.warn("Failed to close audio device");
+            }
+            throw new SpeakerException(String.format("Failed to open audio device: %s", getAlcError(error)));
+        }
+        return device;
+    }
+
+    public static List<String> getAllSpeakers() {
+        List<String> devices = null;
+        if (canEnumerateAll()) {
+            devices = ALUtil.getStringList(0L, ALC11.ALC_ALL_DEVICES_SPECIFIER);
+        } else {
+            Voicechat.LOGGER.warn("Extension ALC_ENUMERATE_ALL_EXT is not present");
+        }
+        boolean canEnumerate = canEnumerate();
+        if (devices == null && !canEnumerate) {
+            Voicechat.LOGGER.warn("Extension ALC_ENUMERATION_EXT is not present");
+        }
+        if (devices == null && canEnumerate) {
+            devices = ALUtil.getStringList(0L, ALC11.ALC_DEVICE_SPECIFIER);
+        }
+        if (devices == null) {
+            devices = Collections.emptyList();
+        }
+        return devices;
+    }
+
+    public static boolean canEnumerateAll() {
+        return ALC11.alcIsExtensionPresent(0L, "ALC_ENUMERATE_ALL_EXT");
+    }
+
+    public static boolean canEnumerate() {
+        return ALC11.alcIsExtensionPresent(0L, "ALC_ENUMERATION_EXT");
+    }
+
+    public void runInContext(Executor executor, Runnable runnable) {
+        long time = System.currentTimeMillis();
+        executor.execute(() -> {
+            long diff = System.currentTimeMillis() - time;
+            if (diff > 20 || (diff >= 5 && Voicechat.debugMode())) {
+                Voicechat.LOGGER.warn("Sound executor delay: {} ms!", diff);
+            }
+            if (openContext()) {
+                runnable.run();
+                closeContext();
+            }
+        });
+    }
+
+    public boolean openContext() {
+        long alcContext = ClientPluginManager.instance().getAlcContext(context);
+        if (alcContext == 0) {
+            return false;
+        }
+        boolean success = EXTThreadLocalContext.alcSetThreadContext(alcContext);
+        if (success) {
+            AL.setCurrentThread(alCaps);
+        }
+        return success;
+    }
+
+    public void closeContext() {
+        AL.setCurrentThread(null);
+        EXTThreadLocalContext.alcSetThreadContext(0L);
+    }
+
+    public static boolean checkAlError() {
+        int error = AL11.alGetError();
+        if (error == AL11.AL_NO_ERROR) {
+            return false;
+        }
+        StackTraceElement stack = Thread.currentThread().getStackTrace()[2];
+        Voicechat.LOGGER.error("Voicechat sound manager AL error: {}.{}[{}] {}", stack.getClassName(), stack.getMethodName(), stack.getLineNumber(), getAlError(error));
+        return true;
+    }
+
+    public static boolean checkAlcError(long device) {
+        int error = ALC11.alcGetError(device);
+        if (error == ALC11.ALC_NO_ERROR) {
+            return false;
+        }
+        StackTraceElement stack = Thread.currentThread().getStackTrace()[2];
+        Voicechat.LOGGER.error("Voicechat sound manager ALC error: {}.{}[{}] {}", stack.getClassName(), stack.getMethodName(), stack.getLineNumber(), getAlcError(error));
+        return true;
+    }
+
+    public static String getAlError(int errorCode) {
+        switch (errorCode) {
+            case AL11.AL_INVALID_NAME:
+                return "Invalid name";
+            case AL11.AL_INVALID_ENUM:
+                return "Invalid enum ";
+            case AL11.AL_INVALID_VALUE:
+                return "Invalid value";
+            case AL11.AL_INVALID_OPERATION:
+                return "Invalid operation";
+            case AL11.AL_OUT_OF_MEMORY:
+                return "Out of memory";
+            default:
+                return String.format("Error %#X", errorCode);
+        }
+    }
+
+    public static String getAlcError(int i) {
+        switch (i) {
+            case ALC11.ALC_INVALID_DEVICE:
+                return "Invalid device";
+            case ALC11.ALC_INVALID_CONTEXT:
+                return "Invalid context";
+            case ALC11.ALC_INVALID_ENUM:
+                return "Invalid enum";
+            case ALC11.ALC_INVALID_VALUE:
+                return "Invalid value";
+            case ALC11.ALC_OUT_OF_MEMORY:
+                return "Out of memory";
+            default:
+                return "Unknown error";
+        }
+    }
+
+    private static final Pattern DEVICE_NAME = Pattern.compile("^(?:OpenAL.+?on )?(.*)$");
+
+    public static String cleanDeviceName(String name) {
+        Matcher matcher = DEVICE_NAME.matcher(name);
+        if (!matcher.matches()) {
+            return name;
+        }
+        return matcher.group(1);
+    }
+
+}
