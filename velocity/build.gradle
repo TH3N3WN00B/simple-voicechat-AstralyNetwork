@@ -32,7 +32,7 @@ sourceSets.main.java {
 
 tasks {
     runVelocity {
-        velocityVersion('3.3.0-SNAPSHOT')
+        velocityVersion('4.3.0')
     }
 }
 
