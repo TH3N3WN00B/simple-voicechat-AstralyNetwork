@@ -1,9 +1,10 @@
 package de.maxhenkel.voicechat.voice.common;
 
 import de.maxhenkel.voicechat.Voicechat;
-import de.maxhenkel.voicechat.api.RawUdpPacket;
 import de.maxhenkel.voicechat.debug.PingHandler;
 import de.maxhenkel.voicechat.voice.server.ClientConnection;
+import de.maxhenkel.voicechat.voice.server.ConnectionSecret;
+import de.maxhenkel.voicechat.voice.server.UdpPacket;
 import de.maxhenkel.voicechat.voice.server.Server;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.DecoderException;
@@ -22,10 +23,13 @@ import java.util.UUID;
 public class NetworkMessage {
 
     public static final byte MAGIC_BYTE = (byte) 0b11111111;
+    public static final int NONCE_SIZE_BYTES = 16;
 
     private final long timestamp;
     private Packet<? extends Packet> packet;
     private SocketAddress address;
+    @Nullable
+    private UUID connectionId;
 
     public NetworkMessage(long timestamp, Packet<?> packet) {
         this(timestamp);
@@ -33,7 +37,7 @@ public class NetworkMessage {
     }
 
     public NetworkMessage(Packet<?> packet) {
-        this(System.currentTimeMillis());
+        this(Utils.getMilliseconds());
         this.packet = packet;
     }
 
@@ -58,6 +62,14 @@ public class NetworkMessage {
         return address;
     }
 
+    /**
+     * @return the connection ID whose secret decrypted this message or null if the message was not received by the server
+     */
+    @Nullable
+    public UUID getConnectionId() {
+        return connectionId;
+    }
+
     // ─── Packet factory — no reflection on hot path ───────────────────────────
     // The original code used getDeclaredConstructor().newInstance() (reflection) on
     // every received UDP packet. Reflection has ~10-50x overhead vs direct dispatch.
@@ -78,27 +90,27 @@ public class NetworkMessage {
             case 0x9 -> new ConnectionCheckPacket();
             case 0xA -> new ConnectionCheckAckPacket();
             case 0xB -> new AnnouncementSoundPacket();
-            default  -> null;
+            default -> null;
         };
     }
 
     private static byte getPacketType(Packet<? extends Packet> packet) {
-        if (packet instanceof MicPacket)              return 0x1;
-        if (packet instanceof PlayerSoundPacket)      return 0x2;
-        if (packet instanceof GroupSoundPacket)       return 0x3;
-        if (packet instanceof LocationSoundPacket)    return 0x4;
-        if (packet instanceof AuthenticatePacket)     return 0x5;
-        if (packet instanceof AuthenticateAckPacket)  return 0x6;
-        if (packet instanceof PingPacket)             return 0x7;
-        if (packet instanceof KeepAlivePacket)        return 0x8;
-        if (packet instanceof ConnectionCheckPacket)  return 0x9;
+        if (packet instanceof MicPacket) return 0x1;
+        if (packet instanceof PlayerSoundPacket) return 0x2;
+        if (packet instanceof GroupSoundPacket) return 0x3;
+        if (packet instanceof LocationSoundPacket) return 0x4;
+        if (packet instanceof AuthenticatePacket) return 0x5;
+        if (packet instanceof AuthenticateAckPacket) return 0x6;
+        if (packet instanceof PingPacket) return 0x7;
+        if (packet instanceof KeepAlivePacket) return 0x8;
+        if (packet instanceof ConnectionCheckPacket) return 0x9;
         if (packet instanceof ConnectionCheckAckPacket) return (byte) 0xA;
-        if (packet instanceof AnnouncementSoundPacket)  return (byte) 0xB;
+        if (packet instanceof AnnouncementSoundPacket) return (byte) 0xB;
         return -1;
     }
 
     @Nullable
-    public static NetworkMessage readPacketServer(RawUdpPacket packet, Server server) {
+    public static NetworkMessage readPacketServer(UdpPacket packet, Server server) {
         try {
             byte[] data = packet.getData();
             FriendlyByteBuf b = new FriendlyByteBuf(Unpooled.wrappedBuffer(data));
@@ -106,14 +118,14 @@ public class NetworkMessage {
                 Voicechat.LOGGER.debug("Received invalid packet from {}", packet.getSocketAddress());
                 return null;
             }
-            UUID playerID = b.readUUID();
-            Secret secret = server.getSecretOrNull(playerID);
-            if (secret == null) {
-                if (PingHandler.onPacket(server, packet.getSocketAddress(), playerID, b)) {
+            UUID connectionId = b.readUUID();
+            ConnectionSecret connectionSecret = server.getConnectionSecrets().getByConnectionId(connectionId);
+            if (connectionSecret == null) {
+                if (PingHandler.onPacket(server, packet.getSocketAddress(), connectionId, b)) {
                     return null;
                 }
                 // Ignore packets if they are not from a player that has a secret
-                Voicechat.LOGGER.debug("Player {} does not have a secret", playerID);
+                Voicechat.LOGGER.debug("Connection {} does not have a secret", connectionId);
                 return null;
             }
             int length = b.readVarInt();
@@ -121,7 +133,12 @@ public class NetworkMessage {
                 Voicechat.LOGGER.debug("Received invalid packet length from {}", packet.getSocketAddress());
                 return null;
             }
-            return readFromBytes(packet.getSocketAddress(), secret, data, b.readerIndex(), length, packet.getTimestamp());
+            // Decrypt straight from the receive buffer without copying the payload first
+            NetworkMessage message = readFromBytes(packet.getSocketAddress(), connectionSecret.getSecret(), data, b.readerIndex(), length, packet.getTimestamp());
+            if (message != null) {
+                message.connectionId = connectionId;
+            }
+            return message;
         } catch (DecoderException | IndexOutOfBoundsException e) {
             Voicechat.LOGGER.debug("Received invalid packet from {}", packet.getSocketAddress());
             return null;
@@ -161,20 +178,21 @@ public class NetworkMessage {
         return message;
     }
 
-    public byte[] writeServer(Server server, ClientConnection connection) throws InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException, ShortBufferException {
-        Secret secret = server.getSecretOrNull(connection.getPlayerUUID());
-        if (secret == null) {
-            // The player disconnected in the meantime - don't resurrect a secret for them
-            throw new IllegalStateException("No secret for " + connection.getPlayerUUID());
-        }
-        return secret.encryptFramed(MAGIC_BYTE, serialize());
+    public byte[] writeServer(ClientConnection connection) throws InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException, ShortBufferException {
+        // Writes [magic byte][varint length][IV][ciphertext + tag] in a single allocation
+        return connection.getConnectionSecret().getSecret().encryptFramed(MAGIC_BYTE, encode());
     }
 
     public byte[] write(Secret secret) throws InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
-        return secret.encrypt(serialize());
+        return secret.encrypt(encode());
     }
 
-    private byte[] serialize() {
+    /**
+     * Sound packets cache their serialized form, so a packet broadcast to many players is only serialized once.
+     *
+     * @return the unencrypted payload
+     */
+    public byte[] encode() {
         SoundPacket<?> soundPacket = packet instanceof SoundPacket<?> sp ? sp : null;
         if (soundPacket != null) {
             byte[] cached = soundPacket.getSerializedCache();

@@ -1,5 +1,6 @@
 package de.maxhenkel.voicechat.voice.common;
 
+import de.maxhenkel.voicechat.Voicechat;
 import de.maxhenkel.voicechat.api.Group;
 import de.maxhenkel.voicechat.plugins.impl.GroupImpl;
 import net.minecraft.network.FriendlyByteBuf;
@@ -85,18 +86,12 @@ public class ClientGroup {
     }
 
     public static ClientGroup fromBytes(FriendlyByteBuf buf) {
-        UUID id = buf.readUUID();
-        String name = buf.readUtf(512);
-        boolean hasPassword = buf.readBoolean();
-        boolean persistent = buf.readBoolean();
-        boolean hidden = buf.readBoolean();
-        de.maxhenkel.voicechat.api.Group.Type type = GroupImpl.TypeImpl.fromInt(buf.readShort());
-        return new ClientGroup(id, name, hasPassword, persistent, hidden, type);
+        return new ClientGroup(buf.readUUID(), buf.readUtf(Voicechat.MAX_GROUP_NAME_LENGTH), buf.readBoolean(), buf.readBoolean(), buf.readBoolean(), GroupImpl.TypeImpl.fromInt(buf.readShort()));
     }
 
     public void toBytes(FriendlyByteBuf buf) {
         buf.writeUUID(id);
-        buf.writeUtf(name, 512);
+        buf.writeUtf(name, Voicechat.MAX_GROUP_NAME_LENGTH);
         buf.writeBoolean(hasPassword);
         buf.writeBoolean(persistent);
         buf.writeBoolean(hidden);

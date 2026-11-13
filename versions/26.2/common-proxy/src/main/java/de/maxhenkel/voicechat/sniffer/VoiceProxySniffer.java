@@ -16,10 +16,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public class VoiceProxySniffer {
 
     /**
-     * Maps the backend server player UUID to the proxy player UUID.
-     * This is useful when UUID forwarding has not been properly configured.
+     * Maps the connection ID in the header of voice chat packets to the proxy player UUID.
+     * Before compatibility version 21, the connection ID is the backend server player UUID, which differs from the proxy player UUID when UUID forwarding has not been properly configured.
      */
-    private final Map<UUID, UUID> playerUUIDMap = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> connectionIdMap = new ConcurrentHashMap<>();
 
     /**
      * Maps a given player UUID to the address and sniffed port of the backend voice chat server.
@@ -31,6 +31,11 @@ public class VoiceProxySniffer {
      */
     private final Map<UUID, Integer> compatibilityVersionMap = new ConcurrentHashMap<>();
 
+    /**
+     * Maps a given player UUID to the sniffed secret packet.
+     */
+    private final Map<UUID, SniffedSecretPacket> secretPacketMap = new ConcurrentHashMap<>();
+
     private final VoiceProxy voiceProxy;
 
     public VoiceProxySniffer(VoiceProxy voiceProxy) {
@@ -40,21 +45,31 @@ public class VoiceProxySniffer {
     /**
      * Returns the players UUID on the proxy server.
      *
-     * @param playerUUID the UUID of the player on the backend server
-     * @return the UUID of the player on the proxy
+     * @param connectionId the connection ID in the header of the voice chat packet
+     * @return the UUID of the player on the proxy, <code>null</code> if the connection ID is unknown
      */
-    public UUID getMappedPlayerUUID(UUID playerUUID) {
-        return playerUUIDMap.getOrDefault(playerUUID, playerUUID);
+    public UUID getMappedPlayerUUID(UUID connectionId) {
+        return connectionIdMap.get(connectionId);
     }
 
     /**
      * Returns the address and sniffed port of the backend voice chat server.
      *
      * @param playerUUID the UUID of the player on the proxy
-     * @return the backend voice chat socket address, which may be unresolved, <code>null</code> if the secret handshake was not sniffed yet
+     * @return the backend voice chat socket address, which may be unresolved or <code>null</code> if the secret handshake was not sniffed yet
      */
     public InetSocketAddress getBackendSocket(UUID playerUUID) {
         return backendSocketMap.get(playerUUID);
+    }
+
+    /**
+     * Returns the last secret packet the backend server sent to the player.
+     *
+     * @param playerUUID the UUID of the player on the proxy
+     * @return the sniffed secret packet, <code>null</code> if the secret handshake was not sniffed yet
+     */
+    public SniffedSecretPacket getSecretPacket(UUID playerUUID) {
+        return secretPacketMap.get(playerUUID);
     }
 
     /**
@@ -94,8 +109,9 @@ public class VoiceProxySniffer {
     public void onPlayerServerDisconnect(UUID playerUUID) {
         backendSocketMap.remove(playerUUID);
         compatibilityVersionMap.remove(playerUUID);
+        secretPacketMap.remove(playerUUID);
         // Remove by the proxies known player UUID e.g., the value of the map
-        playerUUIDMap.values().remove(playerUUID);
+        connectionIdMap.values().remove(playerUUID);
     }
 
     /**
@@ -110,7 +126,10 @@ public class VoiceProxySniffer {
             throw new IncompatibleVoiceChatException("No compatibility version found");
         }
         SniffedSecretPacket packet = SniffedSecretPacket.fromBytes(message, compatibilityVersion);
-        playerUUIDMap.put(packet.getPlayerUUID(), playerUUID);
+        // The connection ID of the previous secret must not be usable anymore
+        connectionIdMap.values().remove(playerUUID);
+        connectionIdMap.put(packet.getConnectionId(), playerUUID);
+        secretPacketMap.put(playerUUID, packet);
 
         InetSocketAddress backendSocket = createBackendSocket(playerUUID, packet.getServerPort());
         if (backendSocket == null) {

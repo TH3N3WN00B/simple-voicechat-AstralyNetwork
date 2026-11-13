@@ -1,7 +1,11 @@
-# Simple Voice Chat - EscoriasSMP fork
+# Simple Voice Chat - AstralyNetwork fork
 
 Fork of [henkelmax/simple-voice-chat](https://github.com/henkelmax/simple-voice-chat) with extra group management
-(owner/admins, server mute, megaphone, announce toggle) and UDP/CPU/RAM optimizations. Current version: **2.6.30**.
+(owner/admins, server mute, megaphone, announce toggle) and UDP/CPU/RAM optimizations. Current version: **2.7.0-pre1.1**
+(based on upstream **2.7.0-pre1**; formerly the EscoriasSMP fork).
+
+> **Compatibility:** 2.7 uses voice chat protocol 21. Players need a 2.7 client of this fork (or upstream 2.7) to connect.
+> Upstream's optional legacy layer for 2.6 clients can be enabled on the server with the JVM flag `-Dvoicechat.legacy`.
 
 Every supported Minecraft version lives in its own folder under `versions/` with its own Gradle wrapper and toolchain
 (Java 17 for 1.20.1, Java 21 for 1.21.x, Java 25 for 26.x), so all of them are built from this single `main` branch.

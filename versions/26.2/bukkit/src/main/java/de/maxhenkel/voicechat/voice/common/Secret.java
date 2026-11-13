@@ -12,7 +12,6 @@ import javax.crypto.spec.SecretKeySpec;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.util.Arrays;
 
 public class Secret {
@@ -21,8 +20,6 @@ public class Secret {
     public static final int IV_SIZE_BYTES = 12;
     public static final int TAG_LEN_BITS = 128;
     public static final String CIPHER = "AES/GCM/NoPadding";
-
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final byte[] secret;
     private final SecretKeySpec keySpec;
@@ -33,9 +30,7 @@ public class Secret {
     }
 
     public static Secret generateNewRandomSecret() {
-        byte[] secret = new byte[SECRET_SIZE_BYTES];
-        RANDOM.nextBytes(secret);
-        return new Secret(secret);
+        return new Secret(Utils.generateSecureRandomBytes(SECRET_SIZE_BYTES));
     }
 
     public static Secret fromBytes(byte[] secret) {
@@ -67,8 +62,7 @@ public class Secret {
     // contention ~1000x/sec on the server alone.
     private static final ThreadLocal<long[]> IV_COUNTER = ThreadLocal.withInitial(() -> {
         long[] c = new long[2]; // [hi 32-bits | lo 64-bits] — encodes 96 bits total
-        byte[] seed = new byte[12];
-        RANDOM.nextBytes(seed);
+        byte[] seed = Utils.generateSecureRandomBytes(IV_SIZE_BYTES);
         c[0] = ((seed[0] & 0xFFL) << 24) | ((seed[1] & 0xFFL) << 16)
              | ((seed[2] & 0xFFL) << 8)  |  (seed[3] & 0xFFL);
         c[1] = ((seed[4]  & 0xFFL) << 56) | ((seed[5]  & 0xFFL) << 48)

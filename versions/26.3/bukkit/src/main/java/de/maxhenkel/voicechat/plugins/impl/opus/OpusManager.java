@@ -38,7 +38,7 @@ public class OpusManager {
             }
 
         }
-        return createEncoder(SAMPLE_RATE, FRAME_SIZE, 1024, application);
+        return createEncoder(SAMPLE_RATE, FRAME_SIZE, Voicechat.SERVER_CONFIG.voiceChatMtuSize.get(), application);
     }
 
     public static OpusDecoder createDecoder(int sampleRate, int frameSize) {

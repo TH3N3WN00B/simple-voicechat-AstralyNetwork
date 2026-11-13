@@ -21,9 +21,9 @@ Please read the [wiki](https://modrepo.de/minecraft/voicechat/wiki/setup) for mo
 
 ---
 
-## EscoriasSMP Fork
+## AstralyNetwork Fork
 
-This repository is a **fork** of [Simple Voice Chat](https://github.com/henkelmax/simple-voice-chat) (branch `1.21.8`) by [Max Henkel (henkelmax)](https://github.com/henkelmax), customized for the **EscoriasSMP** server.
+This repository is a **fork** of [Simple Voice Chat](https://github.com/henkelmax/simple-voice-chat) (branch `1.21.8`) by [Max Henkel (henkelmax)](https://github.com/henkelmax), customized for the **AstralyNetwork** server (formerly EscoriasSMP).
 
 **All credit for the original mod goes to `henkelmax` and the Simple Voice Chat contributors.** This fork only adds a few changes on top of the original:
 
@@ -37,13 +37,15 @@ This repository is a **fork** of [Simple Voice Chat](https://github.com/henkelma
   - and change the group password after creation (`/voicechat group password <password>`).
   No group member can be removed without the owner's or an admin's action.
 - **Server-side mute**: operators can mute a player with `/voicechat mute <player>` (their voice is ignored) and unmute them with `/voicechat unmute <player>`.
+  Since 2.7 this uses the upstream *force mute* state, so the muted player sees it in their own HUD.
 - **Megaphone**: a wider, configurable voice range (`megaphone_distance` in the server config, `128` by default).
   Bind the *Megaphone* key and hold it while talking to be heard further away than normal proximity voice.
 - **Announce mode (voice broadcast)**: `/voicechat announce` is an **operator-only** toggle. While enabled, the player's voice is heard by **everyone** on the server — including players inside groups or isolated rooms. No chat message is sent, it is a pure voice broadcast.
   Requires the `voicechat.announce` permission (granted to operators by default). The legacy client-side *Announce* key still works as an alternative while held.
 - **Performance & stability**:
-  - O(1) UDP sender lookup on the server (reverse address index), replacing a per-packet scan over all connections.
-  - Bounded UDP packet queue with backpressure — no memory blow-up under overload.
+  - Parallel outbound UDP sends, an early proximity filter (inaudible receivers get no packet) and sound packets serialized once per broadcast.
+  - Configurable per-player UDP rate limit (`udp_rate_limit`, default `200`/s); upstream 2.7 kicks players that exceed it.
+  - Lock-free AES-GCM IVs and reused ciphers, zero-copy packet decryption.
   - Bounded caches and stale state is cleaned up on player disconnects (cooldown timers, plugin audio listeners, mute/announce state).
   - Client audio channels are fully closed on voice disconnect (no leaked OpenAL speakers/buffers), and less garbage is allocated in the hot audio paths.
 

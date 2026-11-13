@@ -2,6 +2,7 @@ package de.maxhenkel.voicechat.network;
 
 import de.maxhenkel.voicechat.VoiceProxy;
 import de.maxhenkel.voicechat.debug.PingHandler;
+import de.maxhenkel.voicechat.sniffer.SniffedSecretPacket;
 
 import java.io.IOException;
 import java.net.BindException;
@@ -116,22 +117,37 @@ public class VoiceProxyServer extends Thread {
      */
     private void handlePacket(DatagramPacket packet) throws IOException {
         // The first byte in the datagram must match the magic byte, else this is not a valid SimpleVoiceChat packet
-        ByteBuffer bb = ByteBuffer.wrap(packet.getData());
+        ByteBuffer bb = ByteBuffer.wrap(packet.getData(), 0, packet.getLength());
         if (bb.get() != (byte) 0b11111111) {
             return;
         }
 
-        // The Player UUID comes right after the magic byte in the form of two longs
-        UUID playerUuid = new UUID(bb.getLong(), bb.getLong());
+        // The connection ID comes right after the magic byte in the form of two longs
+        UUID connectionId = new UUID(bb.getLong(), bb.getLong());
 
-        if (PingHandler.onPacket(this, packet.getSocketAddress(), playerUuid, bb)) {
+        if (PingHandler.onPacket(this, packet.getSocketAddress(), connectionId, bb)) {
             return;
         }
 
-        playerUuid = voiceProxy.getSniffer().getMappedPlayerUUID(playerUuid);
+        UUID playerUuid = voiceProxy.getSniffer().getMappedPlayerUUID(connectionId);
+        if (playerUuid == null) {
+            return;
+        }
 
-        VoiceProxyBridgeManager.VoiceProxyBridge bridge = voiceProxyBridgeManager.getOrCreateBridge(playerUuid, packet.getSocketAddress());
+        VoiceProxyBridgeManager.VoiceProxyBridge bridge = voiceProxyBridgeManager.getBridge(playerUuid);
         if (bridge == null) {
+            SniffedSecretPacket secretPacket = voiceProxy.getSniffer().getSecretPacket(playerUuid);
+            if (secretPacket == null || !secretPacket.isLegitimateAuthPacket(bb)) {
+                return;
+            }
+            bridge = voiceProxyBridgeManager.getOrCreateBridge(playerUuid, packet.getSocketAddress());
+            if (bridge == null) {
+                return;
+            }
+        }
+
+        // Only the address that opened the bridge may use it, so copied packets can't be injected from anywhere else
+        if (!bridge.getPlayerAddress().equals(packet.getSocketAddress())) {
             return;
         }
 

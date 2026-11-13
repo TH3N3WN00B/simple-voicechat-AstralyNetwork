@@ -1,6 +1,7 @@
 package de.maxhenkel.voicechat.net;
 
 import de.maxhenkel.voicechat.Voicechat;
+import de.maxhenkel.voicechat.legacy.LegacyCompatibility;
 import io.netty.buffer.Unpooled;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
@@ -44,6 +45,7 @@ public abstract class NetManager {
         groupRolesChannel = registerReceiver(GroupRolesPacket.class, true, false);
         addCategoryChannel = registerReceiver(AddCategoryPacket.class, true, false);
         removeCategoryChannel = registerReceiver(RemoveCategoryPacket.class, true, false);
+        LegacyCompatibility.registerChannels(this);
     }
 
     public abstract <T extends Packet<T>> Channel<T> registerReceiver(Class<T> packetType, boolean toClient, boolean toServer);
@@ -52,9 +54,13 @@ public abstract class NetManager {
         if (!Voicechat.SERVER.isCompatible(player)) {
             return;
         }
+        Packet<?> translatedPacket = LegacyCompatibility.translateOutgoing(player, packet);
+        if (translatedPacket == null) {
+            return;
+        }
         FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
-        packet.toBytes(buffer);
-        player.connection.send(new ClientboundCustomPayloadPacket(packet.getIdentifier(), buffer));
+        translatedPacket.toBytes(buffer);
+        player.connection.send(new ClientboundCustomPayloadPacket(translatedPacket.getIdentifier(), buffer));
     }
 
     /**

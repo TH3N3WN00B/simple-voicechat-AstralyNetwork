@@ -130,7 +130,7 @@ public class VoicechatCommands {
                 return 1;
             }
 
-            String passwordSuffix = group.getPassword() == null ? "" : " \"" + group.getPassword() + "\"";
+            String passwordSuffix = group.getPassword() == null ? "" : String.format(" %s", StringArgumentType.escapeIfRequired(group.getPassword()));
             player.sendSystemMessage(Component.translatable("message.voicechat.invite", source.getDisplayName(), Component.literal(group.getName()).withStyle(ChatFormatting.GRAY), ComponentUtils.wrapInSquareBrackets(Component.translatable("message.voicechat.accept_invite").withStyle(style -> style.withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/voicechat join " + group.getId().toString() + passwordSuffix)).withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.translatable("message.voicechat.accept_invite.hover"))))).withStyle(ChatFormatting.GREEN)));
 
             commandSource.getSource().sendSuccess(() -> Component.translatable("message.voicechat.invite_successful", player.getDisplayName()), false);
@@ -302,10 +302,10 @@ public class VoicechatCommands {
                 PlayerState state = server.getPlayerStateManager().getState(player.getUUID());
                 MutableComponent message = Component.literal("- ").append(player.getDisplayName());
                 if (state != null) {
-                    if (state.isMuted()) {
+                    if (state.isMutedOrForceMuted()) {
                         message.append(" ").append(Component.translatable("message.voicechat.muted_tag").withStyle(ChatFormatting.DARK_RED));
                     }
-                    if (state.isDisabled()) {
+                    if (state.isDisabledOrForceDisabled()) {
                         message.append(" ").append(Component.translatable("message.voicechat.disabled_tag").withStyle(ChatFormatting.GRAY));
                     }
                     if (state.hasGroup()) {
@@ -374,7 +374,7 @@ public class VoicechatCommands {
             source.sendFailure(Component.translatable("message.voicechat.invalid_group_name"));
             return 1;
         }
-        if (password != null && !Voicechat.GROUP_REGEX.matcher(password).matches()) {
+        if (password != null && !Voicechat.GROUP_PASSWORD_REGEX.matcher(password).matches()) {
             source.sendFailure(Component.translatable("message.voicechat.invalid_group_name"));
             return 1;
         }

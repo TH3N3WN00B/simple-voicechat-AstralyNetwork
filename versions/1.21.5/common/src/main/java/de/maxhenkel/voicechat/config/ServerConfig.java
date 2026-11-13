@@ -19,6 +19,7 @@ public class ServerConfig {
     public ConfigEntry<Integer> voiceChatMtuSize;
     public ConfigEntry<Integer> tcpRateLimit;
     public ConfigEntry<Integer> udpRateLimit;
+    public ConfigEntry<Integer> packetQueueSize;
     public ConfigEntry<Integer> keepAlive;
     public ConfigEntry<Boolean> groupsEnabled;
     public ConfigEntry<String> voiceHost;
@@ -71,7 +72,7 @@ public class ServerConfig {
                         "Valid values are 'VOIP', 'AUDIO', and 'RESTRICTED_LOWDELAY'"
                 );
         voiceChatMtuSize = builder
-                .integerEntry("mtu_size", AudioUtils.MAX_OPUS_PAYLOAD_SIZE, 512, 2048,
+                .integerEntry("mtu_size", AudioUtils.MAX_OPUS_PAYLOAD_SIZE, AudioUtils.MIN_MTU_SIZE, AudioUtils.MAX_MTU_SIZE,
                         "The maximum size that audio packets are allowed to have (in bytes)",
                         "Setting this to lower values might cause issues"
                 );
@@ -86,7 +87,12 @@ public class ServerConfig {
                 .integerEntry("udp_rate_limit", 200, -1, 4096,
                         "The maximum number of authenticated UDP voice packets a player can send per second",
                         "Set this to -1 to disable the rate limit - This must be greater than 0 in all other cases",
-                        "This applies to voice audio and keep-alive packets, preventing authenticated UDP floods"
+                        "This applies to voice audio and keep-alive packets, preventing authenticated UDP floods",
+                        "Players exceeding this limit are kicked from the server"
+                );
+        packetQueueSize = builder
+                .integerEntry("packet_queue_size", 16384, 64, Integer.MAX_VALUE,
+                        "The maximum amount of packets that can be queued on the server before new ones are dropped"
                 );
         keepAlive = builder
                 .integerEntry("keep_alive", 1000, 1000, Integer.MAX_VALUE,

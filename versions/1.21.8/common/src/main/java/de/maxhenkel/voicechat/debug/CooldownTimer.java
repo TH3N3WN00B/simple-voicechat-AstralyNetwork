@@ -1,39 +1,41 @@
 package de.maxhenkel.voicechat.debug;
 
+import de.maxhenkel.voicechat.voice.common.Utils;
+
 import java.util.concurrent.ConcurrentHashMap;
 
 public class CooldownTimer {
 
-    private static final int MAX_ENTRIES = 10_000;
+    private static final long CLEANUP_INTERVAL = 60_000L;
+
     private static ConcurrentHashMap<String, Long> cooldowns;
+    private static volatile long lastCleanup;
 
     static {
         cooldowns = new ConcurrentHashMap<>();
+        lastCleanup = Utils.getMilliseconds();
     }
 
     public static void run(String id, long time, Runnable runnable) {
-        long now = System.currentTimeMillis();
-        Long last = cooldowns.putIfAbsent(id, now);
-        if (last == null) {
+        long currentTime = Utils.getMilliseconds();
+        Long cooldownEnd = cooldowns.get(id);
+        if (cooldownEnd == null || currentTime > cooldownEnd) {
+            cooldowns.put(id, currentTime + time);
             runnable.run();
-            prune(now);
-            return;
         }
-        if (now - last > time) {
-            cooldowns.put(id, now);
-            runnable.run();
-            prune(now);
-        }
-    }
-
-    private static void prune(long now) {
-        if (cooldowns.size() > MAX_ENTRIES) {
-            cooldowns.entrySet().removeIf(entry -> now - entry.getValue() > 100_000L);
-        }
+        cleanup(currentTime);
     }
 
     public static void run(String id, Runnable runnable) {
         run(id, 10_000L, runnable);
+    }
+
+    private static void cleanup(long currentTime) {
+        if (currentTime - lastCleanup < CLEANUP_INTERVAL) {
+            return;
+        }
+        lastCleanup = currentTime;
+        cooldowns.values().removeIf(cooldownEnd -> cooldownEnd < currentTime);
     }
 
 }

@@ -8,6 +8,7 @@ import de.maxhenkel.voicechat.voice.client.speaker.Speaker;
 import de.maxhenkel.voicechat.voice.client.speaker.SpeakerException;
 import de.maxhenkel.voicechat.voice.client.speaker.SpeakerManager;
 import de.maxhenkel.voicechat.voice.common.AudioUtils;
+import de.maxhenkel.voicechat.voice.common.Utils;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Tooltip;
@@ -165,6 +166,9 @@ public class MicTestButton extends ToggleImageButton implements ImageButton.Tool
 
             updateLastRender();
             setMicLocked(true);
+            if (usesOwnMicThread) {
+                micThread.start();
+            }
         }
 
         @Override
@@ -179,11 +183,14 @@ public class MicTestButton extends ToggleImageButton implements ImageButton.Tool
                 speaker = SpeakerManager.createSpeaker(soundManager, null);
 
                 while (running) {
-                    if (System.currentTimeMillis() - lastRender > 500L) {
+                    if (Utils.getMilliseconds() - lastRender > 500L) {
                         break;
                     }
-                    if (micThread.isClosed()) {
+                    if (micThread.isClosed() || soundManager.isClosing()) {
                         break;
+                    }
+                    if (micListener != null && !micThread.isMicrophoneAvailable()) {
+                        micListener.onStop();
                     }
                     short[] buff = raw ? micThread.pollMic() : micThread.pollProcessedAudio(true);
                     if (buff == null) {
@@ -207,12 +214,13 @@ public class MicTestButton extends ToggleImageButton implements ImageButton.Tool
                 if (ownSoundManager && soundManager != null) {
                     soundManager.close();
                 }
-                setMicLocked(false);
-                if (micListener != null) {
-                    micListener.onStop();
-                }
                 if (usesOwnMicThread) {
                     micThread.close();
+                } else {
+                    setMicLocked(false);
+                }
+                if (micListener != null) {
+                    micListener.onStop();
                 }
                 setMicActive(false);
                 Voicechat.LOGGER.info("Mic test audio channel closed");
@@ -220,7 +228,7 @@ public class MicTestButton extends ToggleImageButton implements ImageButton.Tool
         }
 
         public void updateLastRender() {
-            lastRender = System.currentTimeMillis();
+            lastRender = Utils.getMilliseconds();
         }
 
         private void setMicLocked(boolean locked) {

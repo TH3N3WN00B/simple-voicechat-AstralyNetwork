@@ -14,6 +14,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 
 import javax.annotation.Nullable;
+import java.util.regex.Pattern;
 
 public abstract class GroupInputScreen extends VoiceChatScreenBase {
 
@@ -34,8 +35,8 @@ public abstract class GroupInputScreen extends VoiceChatScreenBase {
         super.init();
         clearWidgets();
 
-        input = new GroupEditBox(font, guiLeft + PADDING, guiTop + HEADER_SIZE + font.lineHeight + LABEL_GAP, xSize - PADDING * 2, 14);
-        input.setMaxLength(Voicechat.MAX_GROUP_NAME_LENGTH);
+        input = new GroupEditBox(font, guiLeft + PADDING, guiTop + HEADER_SIZE + font.lineHeight + LABEL_GAP, xSize - PADDING * 2, 14, getPattern());
+        input.setMaxLength(getMaxLength());
         input.setValue(getInitialValue());
         addRenderableWidget(input);
 
@@ -57,8 +58,16 @@ public abstract class GroupInputScreen extends VoiceChatScreenBase {
         ok.active = isInputValid(input.getValue());
     }
 
+    protected Pattern getPattern() {
+        return Voicechat.GROUP_REGEX;
+    }
+
+    protected int getMaxLength() {
+        return Voicechat.MAX_GROUP_NAME_LENGTH;
+    }
+
     protected boolean isInputValid(String value) {
-        return Voicechat.GROUP_REGEX.matcher(value).matches();
+        return getPattern().matcher(value).matches();
     }
 
     @Override
@@ -130,8 +139,18 @@ public abstract class GroupInputScreen extends VoiceChatScreenBase {
         }
 
         @Override
+        protected Pattern getPattern() {
+            return Voicechat.GROUP_PASSWORD_REGEX;
+        }
+
+        @Override
+        protected int getMaxLength() {
+            return Voicechat.MAX_CREATE_GROUP_PASSWORD_LENGTH;
+        }
+
+        @Override
         protected boolean isInputValid(String value) {
-            return value.isEmpty() || Voicechat.GROUP_REGEX.matcher(value).matches();
+            return value.isEmpty() || super.isInputValid(value);
         }
 
         @Override
